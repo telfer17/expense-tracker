@@ -1,0 +1,107 @@
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.empty {
+  color: var(--muted);
+  text-align: center;
+  padding: 2rem 0;
+}
+
+.item {
+  border-bottom: 1px solid var(--border);
+  padding: 0.5rem 0;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.name {
+  flex: 1;
+  min-width: 0;
+  padding: 0.625rem 0.25rem;
+  border: none;
+  border-radius: 0.25rem;
+  background: none;
+  font-weight: 500;
+}
+
+.name:focus {
+  outline: 2px solid var(--accent);
+}
+
+.count {
+  color: var(--muted);
+  font-size: 0.8125rem;
+  white-space: nowrap;
+}
+
+.deleteBtn {
+  border: none;
+  background: none;
+  color: var(--danger);
+  font-size: 0.875rem;
+  font-weight: 500;
+  padding: 0.625rem 0.25rem;
+}
+
+.reassign {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  padding: 0.75rem;
+  margin: 0.25rem 0 0.5rem;
+  border-radius: 0.5rem;
+  background: var(--surface);
+}
+
+.reassignHint {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--muted);
+}
+
+.select {
+  padding: 0.625rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--bg);
+}
+
+.reassignActions {
+  display: flex;
+  gap: 0.625rem;
+}
+
+.cancelBtn,
+.confirmBtn {
+  flex: 1;
+  padding: 0.625rem;
+  border-radius: 0.5rem;
+  font-weight: 500;
+  font-size: 0.9375rem;
+}
+
+.cancelBtn {
+  border: 1px solid var(--border);
+  background: none;
+  color: var(--muted);
+}
+
+.confirmBtn {
+  border: none;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font-weight: 600;
+}
+
+.confirmBtn:disabled {
+  opacity: 0.4;
+}
