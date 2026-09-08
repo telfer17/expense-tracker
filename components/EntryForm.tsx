@@ -110,11 +110,12 @@ export default function EntryForm({
       return created.id;
     }
 
-    // The name may already exist (e.g. created in another tab).
+    // The name may already exist (e.g. created in another tab). Escape the
+    // ilike wildcards so % and _ in a name match literally.
     const { data: existing } = await supabase
       .from("categories")
       .select("id, name")
-      .ilike("name", name)
+      .ilike("name", name.replace(/[\\%_]/g, "\\$&"))
       .maybeSingle();
     if (!existing) throw error;
     return existing.id;

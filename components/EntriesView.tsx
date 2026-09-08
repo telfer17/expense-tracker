@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
@@ -35,6 +35,15 @@ export default function EntriesView({
   const [copyMsg, setCopyMsg] = useState<string | null>(null);
 
   const catName = new Map(categories.map((c) => [c.id, c.name]));
+
+  useEffect(() => {
+    if (!editing) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setEditing(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [editing]);
 
   const filtered = entries.filter((e) => {
     if (filterCat && e.category_id !== filterCat) return false;
@@ -223,9 +232,16 @@ export default function EntriesView({
       {copyMsg && <p className={styles.copyMsg}>{copyMsg}</p>}
 
       {editing && (
-        <div className={styles.overlay}>
+        <div
+          className={styles.overlay}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="edit-entry-title"
+        >
           <div className={styles.overlayInner}>
-            <h2 className={styles.overlayTitle}>Edit entry</h2>
+            <h2 id="edit-entry-title" className={styles.overlayTitle}>
+              Edit entry
+            </h2>
             <EntryForm
               userId={userId}
               initialCategories={categories}

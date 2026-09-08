@@ -5,10 +5,14 @@ import styles from "./categories.module.css";
 
 export default async function CategoriesPage() {
   const supabase = await createClient();
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("categories")
     .select("id, name, entries(count)")
     .order("name");
+
+  if (error) {
+    throw new Error(`Couldn't load categories: ${error.message}`);
+  }
 
   const categories = (data ?? []).map((c) => ({
     id: c.id,

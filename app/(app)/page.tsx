@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import EntryForm from "@/components/EntryForm";
 
@@ -9,10 +10,8 @@ export default async function AddPage() {
     supabase.from("categories").select("id, name").order("name"),
   ]);
 
-  return (
-    <EntryForm
-      userId={claims!.claims.sub}
-      initialCategories={categories ?? []}
-    />
-  );
+  const userId = claims?.claims?.sub;
+  if (!userId) redirect("/login");
+
+  return <EntryForm userId={userId} initialCategories={categories ?? []} />;
 }

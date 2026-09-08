@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { currentMonth, monthRange } from "@/lib/month";
 import EntriesView from "@/components/EntriesView";
@@ -27,12 +28,15 @@ export default async function EntriesPage({
       supabase.from("categories").select("id, name").order("name"),
     ]);
 
+  const userId = claims?.claims?.sub;
+  if (!userId) redirect("/login");
+
   return (
     <EntriesView
       month={month}
       entries={entries ?? []}
       categories={categories ?? []}
-      userId={claims!.claims.sub}
+      userId={userId}
     />
   );
 }
