@@ -4,7 +4,7 @@ import { useRef, useState } from "react";
 import Link from "next/link";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
-import { currentMonth, ukToday } from "@/lib/month";
+import { ukToday } from "@/lib/month";
 import type { Category, Direction, Entry } from "@/lib/types";
 import styles from "./EntryForm.module.css";
 
@@ -34,7 +34,7 @@ export default function EntryForm({
 }: {
   userId: string;
   initialCategories: Category[];
-  monthTotals?: { in: number; out: number };
+  monthTotals?: { month: string; in: number; out: number };
   edit?: Entry;
   onClose?: (changed: boolean) => void;
 }) {
@@ -197,6 +197,9 @@ export default function EntryForm({
     // If this save created the category and it's now unused, remove it too.
     const catId = createdCategoryIds.current.get(entry.tempId);
     if (catId) {
+      // Let any other in-flight saves land first so the count below sees
+      // them; the FK's "on delete restrict" backstops anything else.
+      await Promise.allSettled([...syncPromises.current.values()]);
       const { count } = await supabase
         .from("entries")
         .select("id", { count: "exact", head: true })
@@ -301,22 +304,25 @@ export default function EntryForm({
 
   // Optimistic strip totals: server figures plus this session's pending
   // entries that exist (or will exist) in the DB, minus ones being undone.
-  const month = currentMonth();
+  // The month comes with the server totals so filter, link, and figures
+  // always describe the same month.
   let stripIn = monthTotals?.in ?? 0;
   let stripOut = monthTotals?.out ?? 0;
-  for (const e of pending) {
-    const counts =
-      e.status === "saving" || e.status === "saved" || e.status === "undoFailed";
-    if (!counts || !e.entryDate.startsWith(month)) continue;
-    if (e.direction === "in") stripIn += e.amount;
-    else stripOut += e.amount;
+  if (monthTotals) {
+    for (const e of pending) {
+      const counts =
+        e.status === "saving" || e.status === "saved" || e.status === "undoFailed";
+      if (!counts || !e.entryDate.startsWith(monthTotals.month)) continue;
+      if (e.direction === "in") stripIn += e.amount;
+      else stripOut += e.amount;
+    }
   }
   const stripNet = stripIn - stripOut;
 
   return (
     <>
       {!edit && monthTotals && (
-        <Link href={`/entries?month=${month}`} className={styles.strip}>
+        <Link href={`/entries?month=${monthTotals.month}`} className={styles.strip}>
           <span className={styles.stripItem}>
             <span className={styles.stripLabel}>In</span>
             {gbp.format(stripIn)}

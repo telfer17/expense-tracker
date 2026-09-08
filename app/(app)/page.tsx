@@ -5,7 +5,8 @@ import EntryForm from "@/components/EntryForm";
 
 export default async function AddPage() {
   const supabase = await createClient();
-  const { start, end } = monthRange(currentMonth());
+  const month = currentMonth();
+  const { start, end } = monthRange(month);
 
   const [{ data: claims }, { data: categories }, { data: monthEntries }] =
     await Promise.all([
@@ -31,7 +32,7 @@ export default async function AddPage() {
     <EntryForm
       userId={userId}
       initialCategories={categories ?? []}
-      monthTotals={totals}
+      monthTotals={{ month, ...totals }}
     />
   );
 }
