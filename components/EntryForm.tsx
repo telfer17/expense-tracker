@@ -1,9 +1,10 @@
 "use client";
 
 import { useRef, useState } from "react";
+import Link from "next/link";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
-import { ukToday } from "@/lib/month";
+import { currentMonth, ukToday } from "@/lib/month";
 import type { Category, Direction, Entry } from "@/lib/types";
 import styles from "./EntryForm.module.css";
 
@@ -16,7 +17,7 @@ type PendingEntry = {
   entryDate: string;
   note: string;
   isRecurring: boolean;
-  status: "saving" | "saved" | "error";
+  status: "saving" | "saved" | "error" | "undoing" | "undoFailed";
 };
 
 const gbp = new Intl.NumberFormat("en-GB", {
@@ -27,11 +28,13 @@ const gbp = new Intl.NumberFormat("en-GB", {
 export default function EntryForm({
   userId,
   initialCategories,
+  monthTotals,
   edit,
   onClose,
 }: {
   userId: string;
   initialCategories: Category[];
+  monthTotals?: { in: number; out: number };
   edit?: Entry;
   onClose?: (changed: boolean) => void;
 }) {
@@ -51,6 +54,10 @@ export default function EntryForm({
   const [busy, setBusy] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   const amountRef = useRef<HTMLInputElement>(null);
+  // Per pending entry: the in-flight save (resolves to the DB id), and the id
+  // of a category the save created inline, so undo can clean it up.
+  const syncPromises = useRef(new Map<string, Promise<string>>());
+  const createdCategoryIds = useRef(new Map<string, string>());
 
   const parsedAmount = Number(amount.trim().replace(",", "."));
   const amountValid =
@@ -90,12 +97,12 @@ export default function EntryForm({
     );
   }
 
-  async function resolveCategoryId(
+  async function resolveCategory(
     supabase: SupabaseClient,
     name: string,
     knownId: string | null
-  ): Promise<string> {
-    if (knownId) return knownId;
+  ): Promise<{ id: string; created: boolean }> {
+    if (knownId) return { id: knownId, created: false };
 
     const { data: created, error } = await supabase
       .from("categories")
@@ -107,7 +114,7 @@ export default function EntryForm({
       setCategories((prev) =>
         [...prev, created].sort((a, b) => a.name.localeCompare(b.name))
       );
-      return created.id;
+      return { id: created.id, created: true };
     }
 
     // The name may already exist (e.g. created in another tab). Escape the
@@ -118,21 +125,25 @@ export default function EntryForm({
       .ilike("name", name.replace(/[\\%_]/g, "\\$&"))
       .maybeSingle();
     if (!existing) throw error;
-    return existing.id;
+    return { id: existing.id, created: false };
   }
 
-  async function sync(entry: PendingEntry) {
-    updateEntry(entry.tempId, { status: "saving" });
+  async function doSync(entry: PendingEntry): Promise<string> {
     const supabase = createClient();
-    try {
-      const categoryId = await resolveCategoryId(
-        supabase,
-        entry.categoryName,
-        entry.categoryId
-      );
-      updateEntry(entry.tempId, { categoryId });
+    let categoryId = entry.categoryId;
 
-      const { error } = await supabase.from("entries").insert({
+    if (!categoryId) {
+      const resolved = await resolveCategory(supabase, entry.categoryName, null);
+      categoryId = resolved.id;
+      if (resolved.created) {
+        createdCategoryIds.current.set(entry.tempId, resolved.id);
+      }
+      updateEntry(entry.tempId, { categoryId });
+    }
+
+    const { data, error } = await supabase
+      .from("entries")
+      .insert({
         user_id: userId,
         amount: entry.amount,
         direction: entry.direction,
@@ -140,13 +151,70 @@ export default function EntryForm({
         entry_date: entry.entryDate,
         note: entry.note || null,
         is_recurring: entry.isRecurring,
-      });
-      if (error) throw error;
+      })
+      .select("id")
+      .single();
+    if (error || !data) throw error;
+    return data.id;
+  }
 
-      updateEntry(entry.tempId, { status: "saved" });
+  function sync(entry: PendingEntry) {
+    updateEntry(entry.tempId, { status: "saving" });
+    const promise = doSync(entry);
+    syncPromises.current.set(entry.tempId, promise);
+    promise
+      .then(() => {
+        // Don't flip back to "saved" if an undo is already waiting on us.
+        setPending((prev) =>
+          prev.map((e) =>
+            e.tempId === entry.tempId && e.status !== "undoing"
+              ? { ...e, status: "saved" }
+              : e
+          )
+        );
+      })
+      .catch(() => updateEntry(entry.tempId, { status: "error" }));
+  }
+
+  async function undo(entry: PendingEntry) {
+    updateEntry(entry.tempId, { status: "undoing" });
+
+    let dbId: string;
+    try {
+      dbId = await syncPromises.current.get(entry.tempId)!;
     } catch {
-      updateEntry(entry.tempId, { status: "error" });
+      // The save itself failed; sync's handler shows "Failed — retry".
+      return;
     }
+
+    const supabase = createClient();
+    const { error } = await supabase.from("entries").delete().eq("id", dbId);
+    if (error) {
+      updateEntry(entry.tempId, { status: "undoFailed" });
+      return;
+    }
+
+    // If this save created the category and it's now unused, remove it too.
+    const catId = createdCategoryIds.current.get(entry.tempId);
+    if (catId) {
+      const { count } = await supabase
+        .from("entries")
+        .select("id", { count: "exact", head: true })
+        .eq("category_id", catId);
+      if (count === 0) {
+        const { error: catError } = await supabase
+          .from("categories")
+          .delete()
+          .eq("id", catId);
+        if (!catError) {
+          setCategories((prev) => prev.filter((c) => c.id !== catId));
+        }
+      }
+    }
+
+    syncPromises.current.delete(entry.tempId);
+    createdCategoryIds.current.delete(entry.tempId);
+    setPending((prev) => prev.filter((e) => e.tempId !== entry.tempId));
   }
 
   async function saveEdit() {
@@ -156,7 +224,7 @@ export default function EntryForm({
     const supabase = createClient();
     try {
       const match = currentMatch();
-      const categoryId = await resolveCategoryId(
+      const { id: categoryId } = await resolveCategory(
         supabase,
         match?.name ?? trimmedQuery,
         match?.id ?? null
@@ -219,7 +287,7 @@ export default function EntryForm({
     };
 
     setPending((prev) => [entry, ...prev]);
-    void sync(entry);
+    sync(entry);
 
     // Reset for the next entry, keeping the last-used date for back-filling.
     setAmount("");
@@ -231,8 +299,41 @@ export default function EntryForm({
     amountRef.current?.focus();
   }
 
+  // Optimistic strip totals: server figures plus this session's pending
+  // entries that exist (or will exist) in the DB, minus ones being undone.
+  const month = currentMonth();
+  let stripIn = monthTotals?.in ?? 0;
+  let stripOut = monthTotals?.out ?? 0;
+  for (const e of pending) {
+    const counts =
+      e.status === "saving" || e.status === "saved" || e.status === "undoFailed";
+    if (!counts || !e.entryDate.startsWith(month)) continue;
+    if (e.direction === "in") stripIn += e.amount;
+    else stripOut += e.amount;
+  }
+  const stripNet = stripIn - stripOut;
+
   return (
     <>
+      {!edit && monthTotals && (
+        <Link href={`/entries?month=${month}`} className={styles.strip}>
+          <span className={styles.stripItem}>
+            <span className={styles.stripLabel}>In</span>
+            {gbp.format(stripIn)}
+          </span>
+          <span className={styles.stripItem}>
+            <span className={styles.stripLabel}>Out</span>
+            {gbp.format(stripOut)}
+          </span>
+          <span
+            className={stripNet > 0 ? styles.stripNetPositive : styles.stripNetValue}
+          >
+            <span className={styles.stripLabel}>Net</span>
+            {gbp.format(stripNet)}
+          </span>
+        </Link>
+      )}
+
       <form onSubmit={handleSubmit} className={styles.form}>
         <input
           ref={amountRef}
@@ -354,31 +455,60 @@ export default function EntryForm({
 
       {!edit && pending.length > 0 && (
         <ul className={styles.recent}>
-          {pending.map((e) => (
-            <li
-              key={e.tempId}
-              className={e.status === "error" ? styles.recentError : styles.recentItem}
-            >
-              <span className={styles.recentText}>
-                {e.direction === "out" ? "−" : "+"}
-                {gbp.format(e.amount)} · {e.categoryName}
-                {e.note && ` · ${e.note}`}
-              </span>
-              {e.status === "saving" && <span className={styles.status}>Saving…</span>}
-              {e.status === "saved" && (
-                <span className={styles.statusSaved}>Saved ✓</span>
-              )}
-              {e.status === "error" && (
-                <button
-                  type="button"
-                  className={styles.retry}
-                  onClick={() => void sync(e)}
-                >
-                  Failed — retry
-                </button>
-              )}
-            </li>
-          ))}
+          {pending.map((e, i) => {
+            const undoable =
+              i === 0 && (e.status === "saved" || e.status === "saving");
+            return (
+              <li
+                key={e.tempId}
+                className={
+                  e.status === "error" || e.status === "undoFailed"
+                    ? styles.recentError
+                    : styles.recentItem
+                }
+              >
+                <span className={styles.recentText}>
+                  {e.direction === "out" ? "−" : "+"}
+                  {gbp.format(e.amount)} · {e.categoryName}
+                  {e.note && ` · ${e.note}`}
+                </span>
+                <span className={styles.rowEnd}>
+                  {e.status === "saving" && (
+                    <span className={styles.status}>Saving…</span>
+                  )}
+                  {e.status === "saved" && (
+                    <span className={styles.statusSaved}>Saved ✓</span>
+                  )}
+                  {e.status === "undoing" && (
+                    <span className={styles.status}>Undoing…</span>
+                  )}
+                  {undoable && (
+                    <>
+                      <span className={styles.status}>·</span>
+                      <button
+                        type="button"
+                        className={styles.undo}
+                        onClick={() => void undo(e)}
+                      >
+                        Undo
+                      </button>
+                    </>
+                  )}
+                  {(e.status === "error" || e.status === "undoFailed") && (
+                    <button
+                      type="button"
+                      className={styles.retry}
+                      onClick={() =>
+                        e.status === "error" ? sync(e) : void undo(e)
+                      }
+                    >
+                      Failed — retry
+                    </button>
+                  )}
+                </span>
+              </li>
+            );
+          })}
         </ul>
       )}
     </>
