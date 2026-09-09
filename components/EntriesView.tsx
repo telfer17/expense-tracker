@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { addMonths, monthLabel, monthRange } from "@/lib/month";
+import { addMonths, monthRange } from "@/lib/month";
+import { viewHref, type PeriodView } from "@/lib/periods";
 import type { Category, Entry } from "@/lib/types";
 import EntryForm from "./EntryForm";
 import styles from "./EntriesView.module.css";
@@ -18,13 +19,13 @@ type RecurringFilter = "all" | "recurring" | "nonrecurring";
 type DirectionFilter = "" | "in" | "out";
 
 export default function EntriesView({
-  month,
+  view,
   entries,
   categories,
   userId,
   initialCat = "",
 }: {
-  month: string;
+  view: PeriodView;
   entries: Entry[];
   categories: Category[];
   userId: string;
@@ -70,26 +71,26 @@ export default function EntriesView({
     .reduce((s, e) => s + Number(e.amount), 0);
 
   async function copyRecurring() {
+    const prev = view.prev;
+    if (!prev) return;
     setCopying(true);
     setCopyMsg(null);
     const supabase = createClient();
-    const prev = addMonths(month, -1);
-    const { start, end } = monthRange(prev);
 
     const { data: recs, error } = await supabase
       .from("entries")
       .select("amount, direction, category_id, entry_date, note")
       .eq("is_recurring", true)
-      .gte("entry_date", start)
-      .lte("entry_date", end);
+      .gte("entry_date", prev.start)
+      .lte("entry_date", prev.end);
 
     if (error) {
-      setCopyMsg("Couldn't load last month's entries.");
+      setCopyMsg("Couldn't load the previous period's entries.");
       setCopying(false);
       return;
     }
     if (!recs || recs.length === 0) {
-      setCopyMsg(`No recurring entries in ${monthLabel(prev)}.`);
+      setCopyMsg(`No recurring entries in ${prev.label}.`);
       setCopying(false);
       return;
     }
@@ -97,9 +98,9 @@ export default function EntriesView({
     const existing = entries.filter((e) => e.is_recurring).length;
     let msg = `Copy ${recs.length} recurring ${
       recs.length === 1 ? "entry" : "entries"
-    } from ${monthLabel(prev)} into ${monthLabel(month)}?`;
+    } from ${prev.label} into ${view.label}?`;
     if (existing > 0) {
-      msg = `${monthLabel(month)} already has ${existing} recurring ${
+      msg = `${view.label} already has ${existing} recurring ${
         existing === 1 ? "entry" : "entries"
       }.\n\n${msg}`;
     }
@@ -108,18 +109,24 @@ export default function EntriesView({
       return;
     }
 
-    const { days } = monthRange(month);
-    const rows = recs.map((r) => ({
-      user_id: userId,
-      amount: r.amount,
-      direction: r.direction,
-      category_id: r.category_id,
-      entry_date: `${month}-${String(
-        Math.min(Number(r.entry_date.slice(8, 10)), days)
-      ).padStart(2, "0")}`,
-      note: r.note,
-      is_recurring: true,
-    }));
+    // Each copy lands one calendar month after the original, day clamped —
+    // in month mode this is exactly the old prev-month behaviour.
+    const rows = recs.map((r) => {
+      const targetMonth = addMonths(r.entry_date.slice(0, 7), 1);
+      const day = Math.min(
+        Number(r.entry_date.slice(8, 10)),
+        monthRange(targetMonth).days
+      );
+      return {
+        user_id: userId,
+        amount: r.amount,
+        direction: r.direction,
+        category_id: r.category_id,
+        entry_date: `${targetMonth}-${String(day).padStart(2, "0")}`,
+        note: r.note,
+        is_recurring: true,
+      };
+    });
 
     const { error: insertError } = await supabase.from("entries").insert(rows);
     setCopyMsg(
@@ -134,21 +141,33 @@ export default function EntriesView({
   return (
     <div className={styles.view}>
       <div className={styles.monthNav}>
-        <Link
-          href={`/entries?month=${addMonths(month, -1)}`}
-          className={styles.monthArrow}
-          aria-label="Previous month"
-        >
-          ‹
-        </Link>
-        <h1 className={styles.monthTitle}>{monthLabel(month)}</h1>
-        <Link
-          href={`/entries?month=${addMonths(month, 1)}`}
-          className={styles.monthArrow}
-          aria-label="Next month"
-        >
-          ›
-        </Link>
+        {view.prevKey ? (
+          <Link
+            href={viewHref({ mode: view.mode, key: view.prevKey })}
+            className={styles.monthArrow}
+            aria-label={view.mode === "month" ? "Previous month" : "Previous period"}
+          >
+            ‹
+          </Link>
+        ) : (
+          <span className={`${styles.monthArrow} ${styles.monthArrowDisabled}`}>
+            ‹
+          </span>
+        )}
+        <h1 className={styles.monthTitle}>{view.label}</h1>
+        {view.nextKey ? (
+          <Link
+            href={viewHref({ mode: view.mode, key: view.nextKey })}
+            className={styles.monthArrow}
+            aria-label={view.mode === "month" ? "Next month" : "Next period"}
+          >
+            ›
+          </Link>
+        ) : (
+          <span className={`${styles.monthArrow} ${styles.monthArrowDisabled}`}>
+            ›
+          </span>
+        )}
       </div>
 
       <div className={styles.totals}>
@@ -267,10 +286,10 @@ export default function EntriesView({
       <button
         type="button"
         className={styles.copyBtn}
-        disabled={copying}
+        disabled={copying || !view.prev}
         onClick={() => void copyRecurring()}
       >
-        Copy recurring from last month
+        Copy recurring from {view.prev?.label ?? "previous period"}
       </button>
       {copyMsg && <p className={styles.copyMsg}>{copyMsg}</p>}
 

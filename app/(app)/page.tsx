@@ -1,38 +1,69 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { currentMonth, monthRange } from "@/lib/month";
+import { ukToday } from "@/lib/month";
+import { buildPeriods, daysBetween, resolveView, viewHref } from "@/lib/periods";
 import EntryForm from "@/components/EntryForm";
 
 export default async function AddPage() {
   const supabase = await createClient();
-  const month = currentMonth();
-  const { start, end } = monthRange(month);
-
-  const [{ data: claims }, { data: categories }, { data: monthEntries }] =
+  const [{ data: claims }, { data: categories }, { data: markerRows }, { data: earliestRows }] =
     await Promise.all([
       supabase.auth.getClaims(),
       supabase.from("categories").select("id, name").order("name"),
       supabase
         .from("entries")
-        .select("amount, direction")
-        .gte("entry_date", start)
-        .lte("entry_date", end),
+        .select("entry_date")
+        .eq("starts_period", true)
+        .order("entry_date"),
+      supabase
+        .from("entries")
+        .select("entry_date")
+        .order("entry_date")
+        .limit(1),
     ]);
 
   const userId = claims?.claims?.sub;
   if (!userId) redirect("/login");
 
+  const periods = buildPeriods(
+    (markerRows ?? []).map((r) => r.entry_date),
+    earliestRows?.[0]?.entry_date ?? null
+  );
+  const view = resolveView(periods, undefined, undefined);
+
+  let query = supabase
+    .from("entries")
+    .select("amount, direction")
+    .gte("entry_date", view.start);
+  if (view.end) query = query.lte("entry_date", view.end);
+  const { data: periodEntries } = await query;
+
   const totals = { in: 0, out: 0 };
-  for (const e of monthEntries ?? []) {
+  for (const e of periodEntries ?? []) {
     if (e.direction === "in") totals.in += Number(e.amount);
     else totals.out += Number(e.amount);
+  }
+
+  let periodNote: string | null = null;
+  if (view.mode === "period") {
+    const days = daysBetween(view.start, ukToday());
+    if (days > 40) {
+      periodNote = `This period has run ${days} days — did you miss marking a new one?`;
+    }
   }
 
   return (
     <EntryForm
       userId={userId}
       initialCategories={categories ?? []}
-      monthTotals={{ month, ...totals }}
+      periodTotals={{
+        label: view.label,
+        start: view.start,
+        end: view.end,
+        href: viewHref(view),
+        ...totals,
+      }}
+      periodNote={periodNote}
     />
   );
 }

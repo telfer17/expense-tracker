@@ -16,6 +16,10 @@
   margin: 0;
 }
 
+.monthArrowDisabled {
+  opacity: 0.3;
+}
+
 .monthArrow {
   display: flex;
   align-items: center;
