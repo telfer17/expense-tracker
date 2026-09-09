@@ -6,8 +6,10 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { addMonths, monthRange } from "@/lib/month";
 import { viewHref, type PeriodView } from "@/lib/periods";
+import type { RangeView } from "@/lib/range";
 import type { Category, Entry } from "@/lib/types";
 import EntryForm from "./EntryForm";
+import RangeFilter from "./RangeFilter";
 import styles from "./EntriesView.module.css";
 
 const gbp = new Intl.NumberFormat("en-GB", {
@@ -27,6 +29,8 @@ export default function EntriesView({
   categories,
   userId,
   initialCat = "",
+  range = null,
+  rangeOthers = {},
 }: {
   view: PeriodView;
   mode: "month" | "salary";
@@ -36,6 +40,8 @@ export default function EntriesView({
   categories: Category[];
   userId: string;
   initialCat?: string;
+  range?: RangeView | null; // set = range mode: entries span the whole range
+  rangeOthers?: Record<string, string>;
 }) {
   const router = useRouter();
   const [filterCat, setFilterCat] = useState(initialCat);
@@ -164,6 +170,9 @@ export default function EntriesView({
 
   return (
     <div className={styles.view}>
+      {range ? (
+        <h1 className={styles.monthTitle}>{range.label}</h1>
+      ) : (
       <div className={styles.monthNav}>
         {view.prevKey ? (
           <Link
@@ -193,7 +202,9 @@ export default function EntriesView({
           </span>
         )}
       </div>
+      )}
 
+      {!range && (
       <div className={styles.modeToggle} role="group" aria-label="Grouping mode">
         <button
           type="button"
@@ -214,8 +225,9 @@ export default function EntriesView({
           Salary period
         </button>
       </div>
+      )}
       {modeError && <p className={styles.modeNote}>{modeError}</p>}
-      {mode === "salary" && !hasPeriods && (
+      {!range && mode === "salary" && !hasPeriods && (
         <p className={styles.modeNote}>
           No periods defined yet — add one on the{" "}
           <Link href="/periods" className={styles.emptyLink}>
@@ -224,6 +236,15 @@ export default function EntriesView({
           page (start with a payday). Showing calendar months until then.
         </p>
       )}
+
+      <RangeFilter
+        basePath="/entries"
+        preset={range?.preset ?? null}
+        from={range?.from ?? null}
+        to={range?.to ?? null}
+        others={rangeOthers}
+        offLabel={view.mode === "month" ? "Months" : "Periods"}
+      />
 
       <div className={styles.totals}>
         <button
@@ -350,15 +371,19 @@ export default function EntriesView({
         </ul>
       )}
 
-      <button
-        type="button"
-        className={styles.copyBtn}
-        disabled={copying || !view.prev}
-        onClick={() => void copyRecurring()}
-      >
-        Copy recurring from {view.prev?.label ?? "previous period"}
-      </button>
-      {copyMsg && <p className={styles.copyMsg}>{copyMsg}</p>}
+      {!range && (
+        <>
+          <button
+            type="button"
+            className={styles.copyBtn}
+            disabled={copying || !view.prev}
+            onClick={() => void copyRecurring()}
+          >
+            Copy recurring from {view.prev?.label ?? "previous period"}
+          </button>
+          {copyMsg && <p className={styles.copyMsg}>{copyMsg}</p>}
+        </>
+      )}
 
       {editing && (
         <div

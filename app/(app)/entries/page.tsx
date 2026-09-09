@@ -2,14 +2,34 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { monthLabel } from "@/lib/month";
 import { buildPeriods, daysBetween, periodFor, resolveView } from "@/lib/periods";
+import { resolveRange } from "@/lib/range";
 import EntriesView from "@/components/EntriesView";
 
 export default async function EntriesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ month?: string; period?: string; cat?: string }>;
+  searchParams: Promise<{
+    month?: string;
+    period?: string;
+    cat?: string;
+    range?: string;
+    from?: string;
+    to?: string;
+  }>;
 }) {
-  const { month: rawMonth, period: rawPeriod, cat } = await searchParams;
+  const {
+    month: rawMonth,
+    period: rawPeriod,
+    cat,
+    range,
+    from,
+    to,
+  } = await searchParams;
+
+  // A valid range param switches the page from the month/period selector to
+  // range mode; month/period params are kept in the URL so clearing the
+  // range returns to the same view.
+  const rangeView = resolveRange(range, from, to);
 
   const supabase = await createClient();
   const [
@@ -43,10 +63,15 @@ export default async function EntriesPage({
   let query = supabase
     .from("entries")
     .select("id, amount, direction, category_id, entry_date, note, is_recurring")
-    .gte("entry_date", view.start)
     .order("entry_date", { ascending: false })
     .order("created_at", { ascending: false });
-  if (view.end) query = query.lte("entry_date", view.end);
+  if (rangeView) {
+    if (rangeView.from) query = query.gte("entry_date", rangeView.from);
+    if (rangeView.to) query = query.lte("entry_date", rangeView.to);
+  } else {
+    query = query.gte("entry_date", view.start);
+    if (view.end) query = query.lte("entry_date", view.end);
+  }
   const { data: entries, error: entriesError } = await query;
 
   // Fail loudly — a silently empty screen hides real problems (e.g. an
@@ -58,7 +83,7 @@ export default async function EntriesPage({
   // If this period is empty but entries exist elsewhere, point at the
   // period holding the nearest ones so the screen is never a dead end.
   let emptyHint: { label: string; href: string } | null = null;
-  if ((entries ?? []).length === 0 && earliestRows?.[0]) {
+  if (!rangeView && (entries ?? []).length === 0 && earliestRows?.[0]) {
     const [{ data: beforeRows }, afterResult] = await Promise.all([
       supabase
         .from("entries")
@@ -101,6 +126,12 @@ export default async function EntriesPage({
 
   const initialCat = (categories ?? []).some((c) => c.id === cat) ? cat! : "";
 
+  // Search params the range control must preserve when switching ranges.
+  const rangeOthers: Record<string, string> = {};
+  if (rawMonth) rangeOthers.month = rawMonth;
+  if (rawPeriod) rangeOthers.period = rawPeriod;
+  if (cat) rangeOthers.cat = cat;
+
   return (
     <EntriesView
       view={view}
@@ -111,6 +142,8 @@ export default async function EntriesPage({
       categories={categories ?? []}
       userId={userId}
       initialCat={initialCat}
+      range={rangeView}
+      rangeOthers={rangeOthers}
     />
   );
 }
