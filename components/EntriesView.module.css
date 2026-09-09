@@ -32,6 +32,41 @@
   border-radius: 0.5rem;
 }
 
+.modeToggle {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  overflow: hidden;
+}
+
+.modeBtn,
+.modeActive {
+  flex: 1;
+  padding: 0.5rem;
+  border: none;
+  background: var(--bg);
+  color: var(--muted);
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.modeActive {
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font-weight: 600;
+}
+
+.modeNote {
+  color: var(--muted);
+  font-size: 0.875rem;
+  margin: 0;
+}
+
+.emptyLink {
+  color: var(--accent);
+  font-weight: 500;
+}
+
 .totals {
   display: flex;
   border: 1px solid var(--border);

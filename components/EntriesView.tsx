@@ -20,12 +20,18 @@ type DirectionFilter = "" | "in" | "out";
 
 export default function EntriesView({
   view,
+  mode,
+  hasMarkers,
+  emptyHint,
   entries,
   categories,
   userId,
   initialCat = "",
 }: {
   view: PeriodView;
+  mode: "month" | "salary";
+  hasMarkers: boolean;
+  emptyHint: { label: string; href: string } | null;
   entries: Entry[];
   categories: Category[];
   userId: string;
@@ -38,6 +44,8 @@ export default function EntriesView({
   const [editing, setEditing] = useState<Entry | null>(null);
   const [copying, setCopying] = useState(false);
   const [copyMsg, setCopyMsg] = useState<string | null>(null);
+  const [switchingMode, setSwitchingMode] = useState(false);
+  const [modeError, setModeError] = useState<string | null>(null);
 
   const catName = new Map(categories.map((c) => [c.id, c.name]));
 
@@ -69,6 +77,22 @@ export default function EntriesView({
   const outSum = totalsBase
     .filter((e) => e.direction === "out")
     .reduce((s, e) => s + Number(e.amount), 0);
+
+  async function setMode(next: "month" | "salary") {
+    if (next === mode || switchingMode) return;
+    setSwitchingMode(true);
+    setModeError(null);
+    const { error } = await createClient()
+      .from("user_settings")
+      .upsert({ user_id: userId, period_mode: next });
+    setSwitchingMode(false);
+    if (error) {
+      setModeError("Couldn't save the view setting.");
+      return;
+    }
+    router.push("/entries");
+    router.refresh();
+  }
 
   async function copyRecurring() {
     const prev = view.prev;
@@ -170,6 +194,35 @@ export default function EntriesView({
         )}
       </div>
 
+      <div className={styles.modeToggle} role="group" aria-label="Grouping mode">
+        <button
+          type="button"
+          className={mode === "month" ? styles.modeActive : styles.modeBtn}
+          aria-pressed={mode === "month"}
+          disabled={switchingMode}
+          onClick={() => void setMode("month")}
+        >
+          Calendar month
+        </button>
+        <button
+          type="button"
+          className={mode === "salary" ? styles.modeActive : styles.modeBtn}
+          aria-pressed={mode === "salary"}
+          disabled={switchingMode}
+          onClick={() => void setMode("salary")}
+        >
+          Salary period
+        </button>
+      </div>
+      {modeError && <p className={styles.modeNote}>{modeError}</p>}
+      {mode === "salary" && !hasMarkers && (
+        <p className={styles.modeNote}>
+          No periods marked yet — tick &ldquo;Starts new financial period&rdquo;
+          on an entry (usually your salary) to define one. Showing calendar
+          months until then.
+        </p>
+      )}
+
       <div className={styles.totals}>
         <button
           type="button"
@@ -245,7 +298,19 @@ export default function EntriesView({
       )}
 
       {filtered.length === 0 ? (
-        <p className={styles.empty}>No entries.</p>
+        <p className={styles.empty}>
+          No entries.
+          {emptyHint && (
+            <>
+              {" "}
+              The nearest are in{" "}
+              <Link href={emptyHint.href} className={styles.emptyLink}>
+                {emptyHint.label}
+              </Link>
+              .
+            </>
+          )}
+        </p>
       ) : (
         <ul className={styles.list}>
           {filtered.map((e) => (

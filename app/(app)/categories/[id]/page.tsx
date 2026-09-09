@@ -27,32 +27,41 @@ export default async function CategoryPage({
   const { id } = await params;
 
   const supabase = await createClient();
-  const [{ data: category }, { data: entries }, { data: markerRows }, { data: earliestRows }] =
-    await Promise.all([
-      supabase.from("categories").select("id, name").eq("id", id).maybeSingle(),
-      supabase
-        .from("entries")
-        .select("amount, direction, entry_date")
-        .eq("category_id", id)
-        .order("entry_date", { ascending: false }),
-      supabase
-        .from("entries")
-        .select("entry_date")
-        .eq("starts_period", true)
-        .order("entry_date"),
-      supabase
-        .from("entries")
-        .select("entry_date")
-        .order("entry_date")
-        .limit(1),
-    ]);
+  const [
+    { data: category },
+    { data: settingsRow },
+    { data: entries },
+    { data: markerRows },
+    { data: earliestRows },
+  ] = await Promise.all([
+    supabase.from("categories").select("id, name").eq("id", id).maybeSingle(),
+    supabase.from("user_settings").select("period_mode").maybeSingle(),
+    supabase
+      .from("entries")
+      .select("amount, direction, entry_date")
+      .eq("category_id", id)
+      .order("entry_date", { ascending: false }),
+    supabase
+      .from("entries")
+      .select("entry_date")
+      .eq("starts_period", true)
+      .order("entry_date"),
+    supabase
+      .from("entries")
+      .select("entry_date")
+      .order("entry_date")
+      .limit(1),
+  ]);
 
   if (!category) notFound();
 
-  const periods = buildPeriods(
-    (markerRows ?? []).map((r) => r.entry_date),
-    earliestRows?.[0]?.entry_date ?? null
-  );
+  const periods =
+    settingsRow?.period_mode === "salary"
+      ? buildPeriods(
+          (markerRows ?? []).map((r) => r.entry_date),
+          earliestRows?.[0]?.entry_date ?? null
+        )
+      : [];
   const periodMode = periods.length > 0;
 
   // Group into periods (or calendar months with no markers), newest first —
