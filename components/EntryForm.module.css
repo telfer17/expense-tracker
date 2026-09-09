@@ -1,3 +1,46 @@
+.strip {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.625rem 0.875rem;
+  margin-bottom: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  text-decoration: none;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.stripItem {
+  display: flex;
+  align-items: baseline;
+  gap: 0.375rem;
+  font-size: 0.875rem;
+  color: var(--muted);
+}
+
+.stripLabel {
+  font-size: 0.6875rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+
+.stripNetValue,
+.stripNetPositive {
+  display: flex;
+  align-items: baseline;
+  gap: 0.375rem;
+  margin-left: auto;
+  font-size: 1.125rem;
+  font-weight: 700;
+}
+
+.stripNetPositive {
+  color: var(--accent);
+}
+
 .form {
   display: flex;
   flex-direction: column;
@@ -187,10 +230,27 @@
   white-space: nowrap;
 }
 
+.rowEnd {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  flex-shrink: 0;
+}
+
 .status {
   color: var(--muted);
   font-size: 0.8125rem;
   white-space: nowrap;
+}
+
+.undo {
+  border: none;
+  background: none;
+  color: var(--accent);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  white-space: nowrap;
+  padding: 0.25rem;
 }
 
 .statusSaved {
