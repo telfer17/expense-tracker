@@ -12,6 +12,11 @@ export async function login(formData: FormData) {
   });
 
   if (error) {
+    // TEMP: surface the real cause of local login failures. Remove me.
+    console.error("[login] signInWithPassword failed:", {
+      status: error.status,
+      message: error.message,
+    });
     redirect("/login?error=1");
   }
 

@@ -4,7 +4,7 @@ import { useRef, useState } from "react";
 import Link from "next/link";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
-import { ukToday } from "@/lib/month";
+import { monthLabel, ukToday } from "@/lib/month";
 import type { Category, Direction, Entry } from "@/lib/types";
 import styles from "./EntryForm.module.css";
 
@@ -337,19 +337,29 @@ export default function EntryForm({
     <>
       {!edit && monthTotals && (
         <Link href={`/entries?month=${monthTotals.month}`} className={styles.strip}>
-          <span className={styles.stripItem}>
-            <span className={styles.stripLabel}>In</span>
-            {gbp.format(stripIn)}
+          <span className={styles.stripMonth}>
+            {monthLabel(monthTotals.month)}
           </span>
-          <span className={styles.stripItem}>
-            <span className={styles.stripLabel}>Out</span>
-            {gbp.format(stripOut)}
+          <span className={styles.stripFigures}>
+            <span className={styles.stripItem}>
+              <span className={styles.stripLabel}>In</span>
+              {gbp.format(stripIn)}
+            </span>
+            <span className={styles.stripItem}>
+              <span className={styles.stripLabel}>Out</span>
+              {gbp.format(stripOut)}
+            </span>
+            <span
+              className={
+                stripNet > 0 ? styles.stripNetPositive : styles.stripNetValue
+              }
+            >
+              <span className={styles.stripLabel}>Net</span>
+              {gbp.format(stripNet)}
+            </span>
           </span>
-          <span
-            className={stripNet > 0 ? styles.stripNetPositive : styles.stripNetValue}
-          >
-            <span className={styles.stripLabel}>Net</span>
-            {gbp.format(stripNet)}
+          <span className={styles.stripChevron} aria-hidden="true">
+            ›
           </span>
         </Link>
       )}

@@ -3,6 +3,7 @@
   bottom: 0;
   left: 0;
   right: 0;
+  z-index: 5;
   display: flex;
   border-top: 1px solid var(--border);
   background: var(--bg);
@@ -13,7 +14,7 @@
 .active {
   flex: 1;
   text-align: center;
-  padding: 0.875rem 0;
+  padding: 0.875rem 0.5rem;
   text-decoration: none;
   color: var(--muted);
   font-size: 0.875rem;
@@ -22,6 +23,7 @@
 
 .active {
   color: var(--accent);
+  font-weight: 600;
 }
 
 @media (min-width: 768px) {
@@ -29,9 +31,16 @@
     position: sticky;
     top: 0;
     bottom: auto;
+    justify-content: center;
+    gap: 3rem;
     border-top: none;
     border-bottom: 1px solid var(--border);
-    max-width: 30rem;
-    margin: 0 auto;
+    padding-bottom: 0;
+  }
+
+  .link,
+  .active {
+    flex: 0 0 auto;
+    padding: 0.875rem 0.25rem;
   }
 }
