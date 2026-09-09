@@ -1,0 +1,124 @@
+.view {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.title {
+  font-size: 1.125rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+.file {
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--bg);
+  font-size: 0.9375rem;
+}
+
+.hint {
+  color: var(--muted);
+  font-size: 0.875rem;
+  text-align: center;
+  margin: 0;
+}
+
+.count {
+  font-weight: 600;
+  margin: 0;
+}
+
+.confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.undoBtn {
+  padding: 0.75rem;
+  border: 1px solid var(--danger);
+  border-radius: 0.75rem;
+  background: none;
+  color: var(--danger);
+  font-weight: 500;
+}
+
+.undoBtn:disabled {
+  opacity: 0.5;
+}
+
+.rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.row,
+.rowExcluded {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+}
+
+.rowExcluded > *:not(.rowTop) {
+  opacity: 0.4;
+}
+
+.rowTop {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.rowTop input[type="date"] {
+  flex: 1;
+  min-width: 0;
+}
+
+.include {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.include input {
+  width: 1.25rem;
+  height: 1.25rem;
+  accent-color: var(--accent);
+}
+
+.descField {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.rawDesc {
+  margin: 0;
+  padding: 0 0.125rem;
+  color: var(--muted);
+  font-size: 0.75rem;
+  overflow-wrap: anywhere;
+}
+
+.rowMid {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.rowMid > * {
+  flex: 1;
+  min-width: 0;
+}
