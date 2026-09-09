@@ -22,14 +22,16 @@ export default function EntriesView({
   entries,
   categories,
   userId,
+  initialCat = "",
 }: {
   month: string;
   entries: Entry[];
   categories: Category[];
   userId: string;
+  initialCat?: string;
 }) {
   const router = useRouter();
-  const [filterCat, setFilterCat] = useState("");
+  const [filterCat, setFilterCat] = useState(initialCat);
   const [filterRec, setFilterRec] = useState<RecurringFilter>("all");
   const [filterDir, setFilterDir] = useState<DirectionFilter>("");
   const [editing, setEditing] = useState<Entry | null>(null);
@@ -216,6 +218,12 @@ export default function EntriesView({
           <option value="nonrecurring">Non-recurring only</option>
         </select>
       </div>
+
+      {filterCat && (
+        <Link href={`/categories/${filterCat}`} className={styles.catLink}>
+          {catName.get(filterCat)} ›
+        </Link>
+      )}
 
       {filtered.length === 0 ? (
         <p className={styles.empty}>No entries.</p>
