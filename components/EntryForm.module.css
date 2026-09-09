@@ -1,14 +1,39 @@
 .strip {
+  position: relative;
   display: flex;
-  align-items: center;
-  gap: 1rem;
-  padding: 0.625rem 0.875rem;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.625rem 2.25rem 0.625rem 0.875rem;
   margin-bottom: 1rem;
   border: 1px solid var(--border);
   border-radius: 0.75rem;
   text-decoration: none;
   color: var(--text);
   font-variant-numeric: tabular-nums;
+}
+
+.stripMonth {
+  font-size: 0.6875rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+
+.stripFigures {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+}
+
+.stripChevron {
+  position: absolute;
+  right: 0.875rem;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 1.25rem;
+  color: var(--muted);
 }
 
 .stripItem {
