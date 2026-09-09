@@ -159,8 +159,20 @@
 
 .row {
   display: flex;
-  gap: 0.75rem;
+  flex-wrap: wrap;
+  gap: 0 0.75rem;
   align-items: center;
+}
+
+.periodNote {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+.periodNote a {
+  color: var(--accent);
+  font-weight: 500;
 }
 
 .row .input {

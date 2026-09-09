@@ -4,7 +4,7 @@ import { useRef, useState } from "react";
 import Link from "next/link";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
-import { monthLabel, ukToday } from "@/lib/month";
+import { ukToday } from "@/lib/month";
 import type { Category, Direction, Entry } from "@/lib/types";
 import CategoryPicker from "./CategoryPicker";
 import styles from "./EntryForm.module.css";
@@ -29,13 +29,22 @@ const gbp = new Intl.NumberFormat("en-GB", {
 export default function EntryForm({
   userId,
   initialCategories,
-  monthTotals,
+  periodTotals,
+  periodNote,
   edit,
   onClose,
 }: {
   userId: string;
   initialCategories: Category[];
-  monthTotals?: { month: string; in: number; out: number };
+  periodTotals?: {
+    label: string;
+    start: string;
+    end: string | null;
+    href: string;
+    in: number;
+    out: number;
+  };
+  periodNote?: string | null;
   edit?: Entry;
   onClose?: (changed: boolean) => void;
 }) {
@@ -312,15 +321,18 @@ export default function EntryForm({
 
   // Optimistic strip totals: server figures plus this session's pending
   // entries that exist (or will exist) in the DB, minus ones being undone.
-  // The month comes with the server totals so filter, link, and figures
-  // always describe the same month.
-  let stripIn = monthTotals?.in ?? 0;
-  let stripOut = monthTotals?.out ?? 0;
-  if (monthTotals) {
+  // The period range comes with the server totals so filter, link, and
+  // figures always describe the same period.
+  let stripIn = periodTotals?.in ?? 0;
+  let stripOut = periodTotals?.out ?? 0;
+  if (periodTotals) {
     for (const e of pending) {
       const counts =
         e.status === "saving" || e.status === "saved" || e.status === "undoFailed";
-      if (!counts || !e.entryDate.startsWith(monthTotals.month)) continue;
+      const inRange =
+        e.entryDate >= periodTotals.start &&
+        (!periodTotals.end || e.entryDate <= periodTotals.end);
+      if (!counts || !inRange) continue;
       if (e.direction === "in") stripIn += e.amount;
       else stripOut += e.amount;
     }
@@ -329,11 +341,9 @@ export default function EntryForm({
 
   return (
     <>
-      {!edit && monthTotals && (
-        <Link href={`/entries?month=${monthTotals.month}`} className={styles.strip}>
-          <span className={styles.stripMonth}>
-            {monthLabel(monthTotals.month)}
-          </span>
+      {!edit && periodTotals && (
+        <Link href={periodTotals.href} className={styles.strip}>
+          <span className={styles.stripMonth}>{periodTotals.label}</span>
           <span className={styles.stripFigures}>
             <span className={styles.stripItem}>
               <span className={styles.stripLabel}>In</span>
@@ -356,6 +366,12 @@ export default function EntryForm({
             ›
           </span>
         </Link>
+      )}
+
+      {!edit && periodNote && (
+        <p className={styles.periodNote}>
+          {periodNote} <Link href="/entries">Review entries</Link>
+        </p>
       )}
 
       <form onSubmit={handleSubmit} className={styles.form}>
@@ -408,6 +424,9 @@ export default function EntryForm({
             onChange={(e) => setEntryDate(e.target.value)}
             aria-label="Date"
           />
+        </div>
+
+        <div className={styles.row}>
           <label className={styles.recurring}>
             <input
               type="checkbox"
