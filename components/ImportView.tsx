@@ -7,7 +7,8 @@ import CategoryPicker from "./CategoryPicker";
 import formStyles from "./EntryForm.module.css";
 import styles from "./ImportView.module.css";
 
-const MAX_BYTES = 10 * 1024 * 1024;
+// Must stay in sync with /api/import — kept under Vercel's 4.5MB body limit.
+const MAX_BYTES = 4 * 1024 * 1024;
 
 type ReviewRow = {
   id: string;
@@ -82,7 +83,11 @@ export default function ImportView({
           date: t.date,
           description: t.description,
           rawDescription: t.rawDescription,
-          amount: t.amount.toFixed(2),
+          // Blank out bad amounts so importRows' validation flags them.
+          amount:
+            Number.isFinite(t.amount) && t.amount > 0
+              ? t.amount.toFixed(2)
+              : "",
           direction: t.direction,
           catQuery: "",
           selectedCat: null,
@@ -106,7 +111,9 @@ export default function ImportView({
       }
       if (f.size > MAX_BYTES) {
         setFile(null);
-        setError("File is too large — the limit is 10MB.");
+        setError(
+          "File is too large — the limit is 4MB. Try a CSV export instead; those are far smaller."
+        );
         return;
       }
     }

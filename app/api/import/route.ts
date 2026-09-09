@@ -7,7 +7,13 @@ import {
   type ParsedTransaction,
 } from "@/lib/statement-import";
 
-const MAX_BYTES = 10 * 1024 * 1024;
+// Give slow PDF parses the full minute, and cap the Anthropic request just
+// below it so a hung request fails through our error mapping, not the platform's.
+export const maxDuration = 60;
+
+// Vercel rejects request bodies above 4.5MB, so cap uploads below that
+// (with headroom for multipart overhead) rather than failing in production.
+const MAX_BYTES = 4 * 1024 * 1024;
 
 const PROMPT = `This is a UK bank statement. Extract every transaction on it.
 
@@ -78,7 +84,10 @@ export async function POST(request: Request) {
   }
   if (file.size > MAX_BYTES) {
     return NextResponse.json(
-      { error: "File is too large — the limit is 10MB." },
+      {
+        error:
+          "File is too large — the limit is 4MB. Try a CSV export instead; those are far smaller.",
+      },
       { status: 400 }
     );
   }
@@ -111,7 +120,9 @@ export async function POST(request: Request) {
   }
 
   const data = Buffer.from(await file.arrayBuffer()).toString("base64");
-  const client = new Anthropic();
+  // Time out below maxDuration and don't retry — a retry couldn't finish
+  // within the route's execution limit anyway.
+  const client = new Anthropic({ timeout: 55_000, maxRetries: 0 });
 
   let response: Anthropic.Message;
   try {

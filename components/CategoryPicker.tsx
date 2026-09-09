@@ -52,6 +52,7 @@ export default function CategoryPicker({
                 ? styles.chipActive
                 : styles.chip
             }
+            aria-pressed={(selected?.id ?? exactMatch?.id) === c.id}
             onClick={() => onPick(c)}
           >
             {c.name}

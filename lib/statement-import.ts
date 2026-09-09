@@ -237,7 +237,10 @@ export function parseCsv(
         (c) => c.includes("withdrawn") || c.includes("debit")
       ),
     };
-    if (Object.values(found).every((idx) => idx !== -1)) {
+    if (
+      Object.values(found).every((idx) => idx !== -1) &&
+      found.paidIn !== found.withdrawn
+    ) {
       headerIndex = i;
       cols = found;
       break;
