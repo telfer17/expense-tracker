@@ -6,6 +6,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
 import { monthLabel, ukToday } from "@/lib/month";
 import type { Category, Direction, Entry } from "@/lib/types";
+import CategoryPicker from "./CategoryPicker";
 import styles from "./EntryForm.module.css";
 
 type PendingEntry = {
@@ -67,13 +68,6 @@ export default function EntryForm({
   const exactMatch = categories.find(
     (c) => c.name.toLowerCase() === trimmedQuery.toLowerCase()
   );
-  const chips =
-    trimmedQuery && !exactMatch
-      ? categories.filter((c) =>
-          c.name.toLowerCase().includes(trimmedQuery.toLowerCase())
-        )
-      : categories;
-
   const canSave = amountValid && trimmedQuery.length > 0;
 
   function currentMatch(): Category | null {
@@ -395,38 +389,16 @@ export default function EntryForm({
           </button>
         </div>
 
-        <div className={styles.field}>
-          <input
-            className={styles.input}
-            type="text"
-            placeholder="Category"
-            value={catQuery}
-            onChange={(e) => {
-              setCatQuery(e.target.value);
-              setSelectedCat(null);
-            }}
-            aria-label="Category"
-          />
-          <div className={styles.chips}>
-            {chips.map((c) => (
-              <button
-                key={c.id}
-                type="button"
-                className={
-                  (selectedCat?.id ?? exactMatch?.id) === c.id
-                    ? styles.chipActive
-                    : styles.chip
-                }
-                onClick={() => pickCategory(c)}
-              >
-                {c.name}
-              </button>
-            ))}
-            {trimmedQuery && !exactMatch && (
-              <span className={styles.newChip}>+ &ldquo;{trimmedQuery}&rdquo;</span>
-            )}
-          </div>
-        </div>
+        <CategoryPicker
+          categories={categories}
+          query={catQuery}
+          selected={selectedCat}
+          onQueryChange={(q) => {
+            setCatQuery(q);
+            setSelectedCat(null);
+          }}
+          onPick={pickCategory}
+        />
 
         <div className={styles.row}>
           <input
