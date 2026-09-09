@@ -21,6 +21,17 @@ const MONTHS_BACK: Record<string, { months: number; label: string }> = {
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
+// A well-formed AND real calendar date — "2026-02-31" would otherwise reach
+// Postgres as an invalid date literal and fail the query.
+function isRealDate(s: string): boolean {
+  if (!DATE_RE.test(s)) return false;
+  const [y, m, d] = s.split("-").map(Number);
+  const dt = new Date(y, m - 1, d);
+  return (
+    dt.getFullYear() === y && dt.getMonth() === m - 1 && dt.getDate() === d
+  );
+}
+
 // `date` minus `months` calendar months, day clamped to the target month's
 // length (31 May − 3 months → 29/28 Feb).
 function shiftMonthsBack(date: string, months: number): string {
@@ -51,13 +62,13 @@ export function resolveRange(
     return {
       preset: rawRange as RangePreset,
       from: shiftMonthsBack(today, rel.months),
-      to: null,
+      to: today, // "last N months" is a window ending today
       label: rel.label,
     };
   }
   if (rawRange === "custom") {
-    let from = DATE_RE.test(rawFrom ?? "") ? rawFrom! : null;
-    let to = DATE_RE.test(rawTo ?? "") ? rawTo! : null;
+    let from = isRealDate(rawFrom ?? "") ? rawFrom! : null;
+    let to = isRealDate(rawTo ?? "") ? rawTo! : null;
     if (from && to && from > to) [from, to] = [to, from];
     const label =
       from && to
