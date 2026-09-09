@@ -141,19 +141,36 @@ export default function EntryForm({
       updateEntry(entry.tempId, { categoryId });
     }
 
-    const { data, error } = await supabase
-      .from("entries")
-      .insert({
-        user_id: userId,
-        amount: entry.amount,
-        direction: entry.direction,
-        category_id: categoryId,
-        entry_date: entry.entryDate,
-        note: entry.note || null,
-        is_recurring: entry.isRecurring,
-      })
-      .select("id")
-      .single();
+    const insertEntry = (catId: string) =>
+      supabase
+        .from("entries")
+        .insert({
+          user_id: userId,
+          amount: entry.amount,
+          direction: entry.direction,
+          category_id: catId,
+          entry_date: entry.entryDate,
+          note: entry.note || null,
+          is_recurring: entry.isRecurring,
+        })
+        .select("id")
+        .single();
+
+    let { data, error } = await insertEntry(categoryId);
+
+    // FK violation: the cached category id points at a category that has
+    // since been deleted (e.g. by an undo's cleanup racing this save).
+    // Re-resolve by name — recreating the category if needed — and retry.
+    if (error?.code === "23503") {
+      const resolved = await resolveCategory(supabase, entry.categoryName, null);
+      categoryId = resolved.id;
+      if (resolved.created) {
+        createdCategoryIds.current.set(entry.tempId, resolved.id);
+      }
+      updateEntry(entry.tempId, { categoryId });
+      ({ data, error } = await insertEntry(categoryId));
+    }
+
     if (error || !data) throw error;
     return data.id;
   }
@@ -195,23 +212,20 @@ export default function EntryForm({
     }
 
     // If this save created the category and it's now unused, remove it too.
+    // No advisory count — the FK's "on delete restrict" makes the delete
+    // itself the atomic "only if unreferenced" check: it fails if any entry
+    // references the category, including one committing concurrently.
     const catId = createdCategoryIds.current.get(entry.tempId);
     if (catId) {
-      // Let any other in-flight saves land first so the count below sees
-      // them; the FK's "on delete restrict" backstops anything else.
+      // Let saves already in flight land first, so a category they're about
+      // to use is kept rather than deleted out from under them.
       await Promise.allSettled([...syncPromises.current.values()]);
-      const { count } = await supabase
-        .from("entries")
-        .select("id", { count: "exact", head: true })
-        .eq("category_id", catId);
-      if (count === 0) {
-        const { error: catError } = await supabase
-          .from("categories")
-          .delete()
-          .eq("id", catId);
-        if (!catError) {
-          setCategories((prev) => prev.filter((c) => c.id !== catId));
-        }
+      const { error: catError } = await supabase
+        .from("categories")
+        .delete()
+        .eq("id", catId);
+      if (!catError) {
+        setCategories((prev) => prev.filter((c) => c.id !== catId));
       }
     }
 
