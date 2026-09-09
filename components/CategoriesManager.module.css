@@ -37,6 +37,27 @@
   outline: 2px solid var(--accent);
 }
 
+.nameLink {
+  flex: 1;
+  min-width: 0;
+  padding: 0.625rem 0.25rem;
+  font-weight: 500;
+  color: inherit;
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.renameBtn {
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: 0.875rem;
+  font-weight: 500;
+  padding: 0.625rem 0.25rem;
+}
+
 .count {
   color: var(--muted);
   font-size: 0.8125rem;

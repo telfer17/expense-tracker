@@ -6,9 +6,9 @@ import EntriesView from "@/components/EntriesView";
 export default async function EntriesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ month?: string }>;
+  searchParams: Promise<{ month?: string; cat?: string }>;
 }) {
-  const { month: raw } = await searchParams;
+  const { month: raw, cat } = await searchParams;
   const month = /^\d{4}-(0[1-9]|1[0-2])$/.test(raw ?? "")
     ? raw!
     : currentMonth();
@@ -31,12 +31,15 @@ export default async function EntriesPage({
   const userId = claims?.claims?.sub;
   if (!userId) redirect("/login");
 
+  const initialCat = (categories ?? []).some((c) => c.id === cat) ? cat! : "";
+
   return (
     <EntriesView
       month={month}
       entries={entries ?? []}
       categories={categories ?? []}
       userId={userId}
+      initialCat={initialCat}
     />
   );
 }

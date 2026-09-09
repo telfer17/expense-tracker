@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import styles from "./CategoriesManager.module.css";
@@ -17,6 +18,7 @@ export default function CategoriesManager({
   categories: CategoryRow[];
 }) {
   const router = useRouter();
+  const [renamingId, setRenamingId] = useState<string | null>(null);
   const [reassignFor, setReassignFor] = useState<string | null>(null);
   const [target, setTarget] = useState("");
   const [busy, setBusy] = useState(false);
@@ -89,20 +91,40 @@ export default function CategoriesManager({
         return (
           <li key={cat.id} className={styles.item}>
             <div className={styles.row}>
-              <input
-                key={`${cat.id}-${cat.name}`}
-                className={styles.name}
-                type="text"
-                defaultValue={cat.name}
-                aria-label={`Rename ${cat.name}`}
-                onBlur={(e) => void rename(cat, e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") e.currentTarget.blur();
-                }}
-              />
+              {renamingId === cat.id ? (
+                <input
+                  className={styles.name}
+                  type="text"
+                  defaultValue={cat.name}
+                  autoFocus
+                  aria-label={`Rename ${cat.name}`}
+                  onBlur={(e) => {
+                    setRenamingId(null);
+                    void rename(cat, e.target.value);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") e.currentTarget.blur();
+                    if (e.key === "Escape") {
+                      e.currentTarget.value = cat.name;
+                      e.currentTarget.blur();
+                    }
+                  }}
+                />
+              ) : (
+                <Link href={`/categories/${cat.id}`} className={styles.nameLink}>
+                  {cat.name}
+                </Link>
+              )}
               <span className={styles.count}>
                 {cat.count} {cat.count === 1 ? "entry" : "entries"}
               </span>
+              <button
+                type="button"
+                className={styles.renameBtn}
+                onClick={() => setRenamingId(cat.id)}
+              >
+                Rename
+              </button>
               <button
                 type="button"
                 className={styles.deleteBtn}
