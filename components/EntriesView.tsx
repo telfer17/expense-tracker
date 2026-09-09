@@ -15,6 +15,7 @@ const gbp = new Intl.NumberFormat("en-GB", {
 });
 
 type RecurringFilter = "all" | "recurring" | "nonrecurring";
+type DirectionFilter = "" | "in" | "out";
 
 export default function EntriesView({
   month,
@@ -30,6 +31,7 @@ export default function EntriesView({
   const router = useRouter();
   const [filterCat, setFilterCat] = useState("");
   const [filterRec, setFilterRec] = useState<RecurringFilter>("all");
+  const [filterDir, setFilterDir] = useState<DirectionFilter>("");
   const [editing, setEditing] = useState<Entry | null>(null);
   const [copying, setCopying] = useState(false);
   const [copyMsg, setCopyMsg] = useState<string | null>(null);
@@ -45,17 +47,23 @@ export default function EntriesView({
     return () => window.removeEventListener("keydown", onKey);
   }, [editing]);
 
-  const filtered = entries.filter((e) => {
+  // Category and recurring narrow the totals; the direction filter does not —
+  // In/Out/Net always show both sides so they work as navigation.
+  const totalsBase = entries.filter((e) => {
     if (filterCat && e.category_id !== filterCat) return false;
     if (filterRec === "recurring" && !e.is_recurring) return false;
     if (filterRec === "nonrecurring" && e.is_recurring) return false;
     return true;
   });
 
-  const inSum = filtered
+  const filtered = totalsBase.filter(
+    (e) => !filterDir || e.direction === filterDir
+  );
+
+  const inSum = totalsBase
     .filter((e) => e.direction === "in")
     .reduce((s, e) => s + Number(e.amount), 0);
-  const outSum = filtered
+  const outSum = totalsBase
     .filter((e) => e.direction === "out")
     .reduce((s, e) => s + Number(e.amount), 0);
 
@@ -142,18 +150,45 @@ export default function EntriesView({
       </div>
 
       <div className={styles.totals}>
-        <div className={styles.total}>
+        <button
+          type="button"
+          className={
+            filterDir === "in"
+              ? `${styles.total} ${styles.totalActive}`
+              : styles.total
+          }
+          aria-pressed={filterDir === "in"}
+          onClick={() => setFilterDir((d) => (d === "in" ? "" : "in"))}
+        >
           <span className={styles.totalLabel}>In</span>
           <span className={styles.totalIn}>{gbp.format(inSum)}</span>
-        </div>
-        <div className={styles.total}>
+        </button>
+        <button
+          type="button"
+          className={
+            filterDir === "out"
+              ? `${styles.total} ${styles.totalActive}`
+              : styles.total
+          }
+          aria-pressed={filterDir === "out"}
+          onClick={() => setFilterDir((d) => (d === "out" ? "" : "out"))}
+        >
           <span className={styles.totalLabel}>Out</span>
           <span>{gbp.format(outSum)}</span>
-        </div>
-        <div className={styles.total}>
+        </button>
+        <button
+          type="button"
+          className={
+            filterDir === ""
+              ? `${styles.total} ${styles.totalActive}`
+              : styles.total
+          }
+          aria-pressed={filterDir === ""}
+          onClick={() => setFilterDir("")}
+        >
           <span className={styles.totalLabel}>Net</span>
           <span>{gbp.format(inSum - outSum)}</span>
-        </div>
+        </button>
       </div>
 
       <div className={styles.filters}>
