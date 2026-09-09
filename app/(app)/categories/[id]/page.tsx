@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { monthLabel } from "@/lib/month";
+import { monthLabel, monthRange } from "@/lib/month";
 import { buildPeriods, periodFor } from "@/lib/periods";
+import { resolveRange, type RangeView } from "@/lib/range";
+import RangeFilter from "@/components/RangeFilter";
 import totals from "@/components/EntriesView.module.css";
 import styles from "./category.module.css";
 
@@ -21,12 +23,31 @@ type Group = {
 
 export default async function CategoryPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ range?: string; from?: string; to?: string }>;
 }) {
   const { id } = await params;
+  const { range, from, to } = await searchParams;
+
+  // No valid range param means the current default: everything.
+  const rv: RangeView = resolveRange(range, from, to) ?? {
+    preset: "all",
+    from: null,
+    to: null,
+    label: "All time",
+  };
 
   const supabase = await createClient();
+  let entriesQuery = supabase
+    .from("entries")
+    .select("amount, direction, entry_date")
+    .eq("category_id", id)
+    .order("entry_date", { ascending: false });
+  if (rv.from) entriesQuery = entriesQuery.gte("entry_date", rv.from);
+  if (rv.to) entriesQuery = entriesQuery.lte("entry_date", rv.to);
+
   const [
     { data: category },
     { data: settingsRow },
@@ -36,11 +57,7 @@ export default async function CategoryPage({
   ] = await Promise.all([
     supabase.from("categories").select("id, name").eq("id", id).maybeSingle(),
     supabase.from("user_settings").select("period_mode").maybeSingle(),
-    supabase
-      .from("entries")
-      .select("amount, direction, entry_date")
-      .eq("category_id", id)
-      .order("entry_date", { ascending: false }),
+    entriesQuery,
     supabase.from("periods").select("start_date").order("start_date"),
     supabase
       .from("entries")
@@ -60,6 +77,16 @@ export default async function CategoryPage({
       : [];
   const periodMode = periods.length > 0;
 
+  // Drilldown links must cover exactly the entries counted in the row: when
+  // the active range clips a group, link to the intersection as a custom
+  // range instead of the whole month/period.
+  const groupHref = (start: string, end: string, plain: string): string => {
+    const from = rv.from && rv.from > start ? rv.from : start;
+    const to = rv.to && rv.to < end ? rv.to : end;
+    if (from === start && to === end) return plain;
+    return `/entries?range=custom&from=${from}&to=${to}&cat=${category.id}`;
+  };
+
   // Group into periods (or calendar months with no markers), newest first —
   // entries arrive date-descending, so insertion order is already newest-first.
   const groups = new Map<string, Group>();
@@ -72,11 +99,16 @@ export default async function CategoryPage({
       if (!p) continue;
       key = p.start;
       label = p.label;
-      href = `/entries?period=${p.start}&cat=${category.id}`;
+      href = groupHref(
+        p.start,
+        p.end,
+        `/entries?period=${p.start}&cat=${category.id}`
+      );
     } else {
       key = e.entry_date.slice(0, 7);
       label = monthLabel(key);
-      href = `/entries?month=${key}&cat=${category.id}`;
+      const m = monthRange(key);
+      href = groupHref(m.start, m.end, `/entries?month=${key}&cat=${category.id}`);
     }
     let g = groups.get(key);
     if (!g) {
@@ -105,6 +137,16 @@ export default async function CategoryPage({
     <div className={styles.page}>
       <h1 className={styles.title}>{category.name}</h1>
 
+      <RangeFilter
+        basePath={`/categories/${category.id}`}
+        preset={rv.preset}
+        from={rv.from}
+        to={rv.to}
+        defaultPreset="all"
+      />
+
+      <p className={styles.rangeNote}>{rv.label}</p>
+
       <div className={totals.totals}>
         <div className={totals.total}>
           <span className={totals.totalLabel}>In</span>
@@ -121,7 +163,9 @@ export default async function CategoryPage({
       </div>
 
       {groupList.length === 0 ? (
-        <p className={styles.empty}>No entries.</p>
+        <p className={styles.empty}>
+          {rv.preset === "all" ? "No entries." : "No entries in this range."}
+        </p>
       ) : (
         <>
           <p className={styles.avg}>
