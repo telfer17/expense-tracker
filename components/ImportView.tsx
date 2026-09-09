@@ -18,7 +18,6 @@ type ReviewRow = {
   rawDescription: string;
   amount: string;
   direction: Direction;
-  startsPeriod: boolean;
   catQuery: string;
   selectedCat: Category | null;
 };
@@ -90,7 +89,6 @@ export default function ImportView({
               ? t.amount.toFixed(2)
               : "",
           direction: t.direction,
-          startsPeriod: false,
           catQuery: "",
           selectedCat: null,
         }))
@@ -186,7 +184,6 @@ export default function ImportView({
           entry_date: r.date,
           note: r.description.trim() || r.rawDescription,
           is_recurring: false,
-          starts_period: r.startsPeriod,
           import_batch: batchId,
         };
       });
@@ -305,17 +302,6 @@ export default function ImportView({
                       aria-label="Include this transaction"
                     />
                     Include
-                  </label>
-                  <label className={styles.include}>
-                    <input
-                      type="checkbox"
-                      checked={r.startsPeriod}
-                      onChange={(e) =>
-                        updateRow(r.id, { startsPeriod: e.target.checked })
-                      }
-                      aria-label="Starts a new financial period"
-                    />
-                    Starts period
                   </label>
                   <input
                     className={formStyles.input}

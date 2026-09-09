@@ -1,6 +1,6 @@
-// Financial periods are defined by marked entries (starts_period = true):
-// each period runs from a marked entry's date to the day before the next
-// marked entry's date; the newest runs to today. With no markers at all,
+// Financial periods are defined by the periods table (a list of start
+// dates): each period runs from its start date to the day before the next
+// period's start date; the newest runs to today. With no periods at all,
 // every screen falls back to calendar months via the same view shape, so
 // this module is the only place that does period/month date maths.
 import { addMonths, monthLabel, monthRange, ukToday } from "./month";
@@ -50,6 +50,22 @@ function dayMonth(date: string): string {
   });
 }
 
+// "21 Jul 2026"
+export function formatDate(date: string): string {
+  const [y, m, d] = date.split("-").map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+// "21 Jul – 19 Aug 2026", or "21 Aug 2026 – present" for the open period.
+export function formatPeriodRange(p: Period): string {
+  if (p.open) return `${formatDate(p.start)} – present`;
+  return rangeLabel(p.start, p.end);
+}
+
 function rangeLabel(start: string, end: string): string {
   const sameYear = start.slice(0, 4) === end.slice(0, 4);
   return sameYear
@@ -57,10 +73,11 @@ function rangeLabel(start: string, end: string): string {
     : `${dayMonth(start)} ${start.slice(0, 4)} – ${dayMonth(end)} ${end.slice(0, 4)}`;
 }
 
-// markers: entry_date of every starts_period entry (any order, dupes ok).
-// earliestEntry: the user's earliest entry date, for the period before the
-// first marker. Returns periods newest-first; empty array = no markers, so
-// callers fall back to calendar months (resolveView does this for you).
+// startDates: the periods table's start_date values (any order, dupes ok).
+// earliestEntry: the user's earliest entry date, for the implicit period
+// before the first start (pass null to skip it). Returns periods
+// newest-first; empty array = no periods, so callers fall back to calendar
+// months (resolveView does this for you).
 export function buildPeriods(
   markers: string[],
   earliestEntry: string | null,

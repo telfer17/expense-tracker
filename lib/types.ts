@@ -13,5 +13,4 @@ export type Entry = {
   entry_date: string;
   note: string | null;
   is_recurring: boolean;
-  starts_period: boolean | null;
 };

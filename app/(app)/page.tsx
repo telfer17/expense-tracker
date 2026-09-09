@@ -16,11 +16,7 @@ export default async function AddPage() {
     supabase.auth.getClaims(),
     supabase.from("user_settings").select("period_mode").maybeSingle(),
     supabase.from("categories").select("id, name").order("name"),
-    supabase
-      .from("entries")
-      .select("entry_date")
-      .eq("starts_period", true)
-      .order("entry_date"),
+    supabase.from("periods").select("start_date").order("start_date"),
     supabase
       .from("entries")
       .select("entry_date")
@@ -34,7 +30,7 @@ export default async function AddPage() {
   const salaryMode = settingsRow?.period_mode === "salary";
   const periods = salaryMode
     ? buildPeriods(
-        (markerRows ?? []).map((r) => r.entry_date),
+        (markerRows ?? []).map((r) => r.start_date),
         earliestRows?.[0]?.entry_date ?? null
       )
     : [];

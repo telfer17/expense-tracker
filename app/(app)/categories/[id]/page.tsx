@@ -41,11 +41,7 @@ export default async function CategoryPage({
       .select("amount, direction, entry_date")
       .eq("category_id", id)
       .order("entry_date", { ascending: false }),
-    supabase
-      .from("entries")
-      .select("entry_date")
-      .eq("starts_period", true)
-      .order("entry_date"),
+    supabase.from("periods").select("start_date").order("start_date"),
     supabase
       .from("entries")
       .select("entry_date")
@@ -58,7 +54,7 @@ export default async function CategoryPage({
   const periods =
     settingsRow?.period_mode === "salary"
       ? buildPeriods(
-          (markerRows ?? []).map((r) => r.entry_date),
+          (markerRows ?? []).map((r) => r.start_date),
           earliestRows?.[0]?.entry_date ?? null
         )
       : [];

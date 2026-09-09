@@ -21,7 +21,7 @@ type DirectionFilter = "" | "in" | "out";
 export default function EntriesView({
   view,
   mode,
-  hasMarkers,
+  hasPeriods,
   emptyHint,
   entries,
   categories,
@@ -30,7 +30,7 @@ export default function EntriesView({
 }: {
   view: PeriodView;
   mode: "month" | "salary";
-  hasMarkers: boolean;
+  hasPeriods: boolean;
   emptyHint: { label: string; href: string } | null;
   entries: Entry[];
   categories: Category[];
@@ -215,11 +215,13 @@ export default function EntriesView({
         </button>
       </div>
       {modeError && <p className={styles.modeNote}>{modeError}</p>}
-      {mode === "salary" && !hasMarkers && (
+      {mode === "salary" && !hasPeriods && (
         <p className={styles.modeNote}>
-          No periods marked yet — tick &ldquo;Starts new financial period&rdquo;
-          on an entry (usually your salary) to define one. Showing calendar
-          months until then.
+          No periods defined yet — add one on the{" "}
+          <Link href="/periods" className={styles.emptyLink}>
+            Periods
+          </Link>{" "}
+          page (start with a payday). Showing calendar months until then.
         </p>
       )}
 

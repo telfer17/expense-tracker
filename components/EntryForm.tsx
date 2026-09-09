@@ -18,7 +18,6 @@ type PendingEntry = {
   entryDate: string;
   note: string;
   isRecurring: boolean;
-  startsPeriod: boolean;
   status: "saving" | "saved" | "error" | "undoing" | "undoFailed";
 };
 
@@ -61,7 +60,6 @@ export default function EntryForm({
   const [entryDate, setEntryDate] = useState(edit?.entry_date ?? ukToday);
   const [note, setNote] = useState(edit?.note ?? "");
   const [isRecurring, setIsRecurring] = useState(edit?.is_recurring ?? false);
-  const [startsPeriod, setStartsPeriod] = useState(edit?.starts_period ?? false);
   const [pending, setPending] = useState<PendingEntry[]>([]);
   const [busy, setBusy] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
@@ -157,7 +155,6 @@ export default function EntryForm({
           entry_date: entry.entryDate,
           note: entry.note || null,
           is_recurring: entry.isRecurring,
-          starts_period: entry.startsPeriod,
         })
         .select("id")
         .single();
@@ -261,7 +258,6 @@ export default function EntryForm({
           entry_date: entryDate,
           note: note.trim() || null,
           is_recurring: isRecurring,
-          starts_period: startsPeriod,
         })
         .eq("id", edit.id);
       if (error) throw error;
@@ -307,7 +303,6 @@ export default function EntryForm({
       entryDate,
       note: note.trim(),
       isRecurring,
-      startsPeriod,
       status: "saving",
     };
 
@@ -321,7 +316,6 @@ export default function EntryForm({
     setSelectedCat(null);
     setNote("");
     setIsRecurring(false);
-    setStartsPeriod(false);
     amountRef.current?.focus();
   }
 
@@ -440,14 +434,6 @@ export default function EntryForm({
               onChange={(e) => setIsRecurring(e.target.checked)}
             />
             Recurring
-          </label>
-          <label className={styles.recurring}>
-            <input
-              type="checkbox"
-              checked={startsPeriod}
-              onChange={(e) => setStartsPeriod(e.target.checked)}
-            />
-            Starts new financial period
           </label>
         </div>
 

@@ -21,11 +21,7 @@ export default async function EntriesPage({
   ] = await Promise.all([
     supabase.auth.getClaims(),
     supabase.from("user_settings").select("period_mode").maybeSingle(),
-    supabase
-      .from("entries")
-      .select("entry_date")
-      .eq("starts_period", true)
-      .order("entry_date"),
+    supabase.from("periods").select("start_date").order("start_date"),
     supabase.from("entries").select("entry_date").order("entry_date").limit(1),
     supabase.from("categories").select("id, name").order("name"),
   ]);
@@ -35,10 +31,10 @@ export default async function EntriesPage({
 
   // Calendar months unless the user has switched to salary periods.
   const salaryMode = settingsRow?.period_mode === "salary";
-  const hasMarkers = (markerRows ?? []).length > 0;
+  const hasPeriods = (markerRows ?? []).length > 0;
   const periods = salaryMode
     ? buildPeriods(
-        (markerRows ?? []).map((r) => r.entry_date),
+        (markerRows ?? []).map((r) => r.start_date),
         earliestRows?.[0]?.entry_date ?? null
       )
     : [];
@@ -46,9 +42,7 @@ export default async function EntriesPage({
 
   let query = supabase
     .from("entries")
-    .select(
-      "id, amount, direction, category_id, entry_date, note, is_recurring, starts_period"
-    )
+    .select("id, amount, direction, category_id, entry_date, note, is_recurring")
     .gte("entry_date", view.start)
     .order("entry_date", { ascending: false })
     .order("created_at", { ascending: false });
@@ -111,7 +105,7 @@ export default async function EntriesPage({
     <EntriesView
       view={view}
       mode={salaryMode ? "salary" : "month"}
-      hasMarkers={hasMarkers}
+      hasPeriods={hasPeriods}
       emptyHint={emptyHint}
       entries={entries ?? []}
       categories={categories ?? []}
