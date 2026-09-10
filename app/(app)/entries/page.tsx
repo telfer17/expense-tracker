@@ -164,14 +164,20 @@ export default async function EntriesPage({
   ) {
     let prefixNet = 0;
     if (sbDate < view.start) {
-      const { data: prefixRows } = await supabase
-        .from("entries")
-        .select("amount, direction")
-        .gte("entry_date", sbDate)
-        .lt("entry_date", view.start);
-      for (const r of prefixRows ?? []) {
-        prefixNet += r.direction === "in" ? Number(r.amount) : -Number(r.amount);
+      // Aggregated in the database — fetching rows would silently truncate
+      // at PostgREST's 1,000-row limit and anchor the balance wrong.
+      const { data: prefixSum, error: prefixError } = await supabase.rpc(
+        "entries_net_before",
+        { p_from: sbDate, p_to: view.start }
+      );
+      // Fail loudly, like entriesError above — a swallowed failure here
+      // would render a wrong balance instead of none.
+      if (prefixError) {
+        throw new Error(
+          `Couldn't compute the running balance: ${prefixError.message}`
+        );
       }
+      prefixNet = Number(prefixSum ?? 0);
     }
     runningBalance = {
       start: Number(settingsRow.starting_balance) + prefixNet,

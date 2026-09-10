@@ -99,8 +99,16 @@ export default function StartingBalance({
           </button>
         )}
       </div>
-      {msg && <p className={styles.msg}>{msg}</p>}
-      {error && <p className={styles.error}>{error}</p>}
+      {msg && (
+        <p className={styles.msg} role="status">
+          {msg}
+        </p>
+      )}
+      {error && (
+        <p className={styles.error} role="alert">
+          {error}
+        </p>
+      )}
     </section>
   );
 }

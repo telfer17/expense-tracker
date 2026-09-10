@@ -119,7 +119,8 @@ export default function EntryForm({
         .eq("category_id", dupCat.id)
         .eq("amount", dupAmount)
         .eq("is_recurring", false)
-        .gte("entry_date", addDays(ukToday(), -7))
+        .gte("entry_date", addDays(entryDate, -7))
+        .lte("entry_date", entryDate)
         .order("entry_date", { ascending: false })
         .limit(1);
       if (!cancelled && data?.[0]) {
@@ -135,7 +136,7 @@ export default function EntryForm({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [edit, dupAmount, dupCat, isRecurring]);
+  }, [edit, dupAmount, dupCat, isRecurring, entryDate]);
 
   useEffect(() => {
     if (!pendingEdit) return;
@@ -342,13 +343,16 @@ export default function EntryForm({
   // After an overlay edit, re-read the entry so the session row (and the
   // optimistic strip totals) reflect what's actually stored now.
   async function refreshPending(tempId: string, dbId: string) {
-    const { data } = await createClient()
+    const { data, error } = await createClient()
       .from("entries")
       .select(
         "amount, direction, category_id, entry_date, note, is_recurring, categories(name)"
       )
       .eq("id", dbId)
       .maybeSingle();
+    // A failed read proves nothing — keep the row and its optimistic
+    // totals rather than treating it as deleted.
+    if (error) return;
     if (!data) {
       // Deleted from the edit overlay.
       syncPromises.current.delete(tempId);
