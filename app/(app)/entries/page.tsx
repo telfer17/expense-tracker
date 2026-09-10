@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { monthLabel } from "@/lib/month";
 import { buildPeriods, daysBetween, periodFor, resolveView } from "@/lib/periods";
 import { resolveRange } from "@/lib/range";
+import { likePattern } from "@/lib/search";
 import EntriesView from "@/components/EntriesView";
 
 export default async function EntriesPage({
@@ -15,6 +16,7 @@ export default async function EntriesPage({
     range?: string;
     from?: string;
     to?: string;
+    q?: string;
   }>;
 }) {
   const {
@@ -24,6 +26,7 @@ export default async function EntriesPage({
     range,
     from,
     to,
+    q = "",
   } = await searchParams;
 
   // A valid range param switches the page from the month/period selector to
@@ -72,6 +75,7 @@ export default async function EntriesPage({
     query = query.gte("entry_date", view.start);
     if (view.end) query = query.lte("entry_date", view.end);
   }
+  if (q) query = query.ilike("note", likePattern(q));
   const { data: entries, error: entriesError } = await query;
 
   // Fail loudly — a silently empty screen hides real problems (e.g. an
@@ -83,22 +87,29 @@ export default async function EntriesPage({
   // If this period is empty but entries exist elsewhere, point at the
   // period holding the nearest ones so the screen is never a dead end.
   let emptyHint: { label: string; href: string } | null = null;
+  const qSuffix = q ? `&q=${encodeURIComponent(q)}` : "";
   if (!rangeView && (entries ?? []).length === 0 && earliestRows?.[0]) {
+    // The probes carry the note filter too, so with a search active the
+    // hint points at the nearest *matching* entries.
+    let beforeQuery = supabase
+      .from("entries")
+      .select("entry_date")
+      .lt("entry_date", view.start)
+      .order("entry_date", { ascending: false })
+      .limit(1);
+    if (q) beforeQuery = beforeQuery.ilike("note", likePattern(q));
+    let afterQuery = view.end
+      ? supabase
+          .from("entries")
+          .select("entry_date")
+          .gt("entry_date", view.end)
+          .order("entry_date")
+          .limit(1)
+      : null;
+    if (afterQuery && q) afterQuery = afterQuery.ilike("note", likePattern(q));
     const [{ data: beforeRows }, afterResult] = await Promise.all([
-      supabase
-        .from("entries")
-        .select("entry_date")
-        .lt("entry_date", view.start)
-        .order("entry_date", { ascending: false })
-        .limit(1),
-      view.end
-        ? supabase
-            .from("entries")
-            .select("entry_date")
-            .gt("entry_date", view.end)
-            .order("entry_date")
-            .limit(1)
-        : Promise.resolve({ data: null }),
+      beforeQuery,
+      afterQuery ?? Promise.resolve({ data: null }),
     ]);
     const before = beforeRows?.[0]?.entry_date ?? null;
     const after = afterResult.data?.[0]?.entry_date ?? null;
@@ -115,22 +126,36 @@ export default async function EntriesPage({
       if (salaryMode && periods.length > 0) {
         const p = periodFor(periods, nearest);
         if (p) {
-          emptyHint = { label: p.label, href: `/entries?period=${p.start}` };
+          emptyHint = {
+            label: p.label,
+            href: `/entries?period=${p.start}${qSuffix}`,
+          };
         }
       } else {
         const m = nearest.slice(0, 7);
-        emptyHint = { label: monthLabel(m), href: `/entries?month=${m}` };
+        emptyHint = {
+          label: monthLabel(m),
+          href: `/entries?month=${m}${qSuffix}`,
+        };
       }
     }
   }
 
   const initialCat = (categories ?? []).some((c) => c.id === cat) ? cat! : "";
 
-  // Search params the range control must preserve when switching ranges.
-  const rangeOthers: Record<string, string> = {};
-  if (rawMonth) rangeOthers.month = rawMonth;
-  if (rawPeriod) rangeOthers.period = rawPeriod;
-  if (cat) rangeOthers.cat = cat;
+  // Search params each control must preserve when it rewrites the URL:
+  // the range control owns range/from/to, the search box owns q; each
+  // keeps the other's params (and month/period/cat) intact.
+  const baseParams: Record<string, string> = {};
+  if (rawMonth) baseParams.month = rawMonth;
+  if (rawPeriod) baseParams.period = rawPeriod;
+  if (cat) baseParams.cat = cat;
+  const rangeOthers = { ...baseParams };
+  if (q) rangeOthers.q = q;
+  const searchOthers = { ...baseParams };
+  if (range) searchOthers.range = range;
+  if (from) searchOthers.from = from;
+  if (to) searchOthers.to = to;
 
   return (
     <EntriesView
@@ -144,6 +169,8 @@ export default async function EntriesPage({
       initialCat={initialCat}
       range={rangeView}
       rangeOthers={rangeOthers}
+      searchQuery={q}
+      searchOthers={searchOthers}
     />
   );
 }

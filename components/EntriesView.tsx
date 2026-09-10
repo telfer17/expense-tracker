@@ -10,6 +10,7 @@ import type { RangeView } from "@/lib/range";
 import type { Category, Entry } from "@/lib/types";
 import EntryForm from "./EntryForm";
 import RangeFilter from "./RangeFilter";
+import SearchBox from "./SearchBox";
 import styles from "./EntriesView.module.css";
 
 const gbp = new Intl.NumberFormat("en-GB", {
@@ -31,6 +32,8 @@ export default function EntriesView({
   initialCat = "",
   range = null,
   rangeOthers = {},
+  searchQuery = "",
+  searchOthers = {},
 }: {
   view: PeriodView;
   mode: "month" | "salary";
@@ -42,6 +45,8 @@ export default function EntriesView({
   initialCat?: string;
   range?: RangeView | null; // set = range mode: entries span the whole range
   rangeOthers?: Record<string, string>;
+  searchQuery?: string; // active note search; entries are already filtered
+  searchOthers?: Record<string, string>;
 }) {
   const router = useRouter();
   const [filterCat, setFilterCat] = useState(initialCat);
@@ -313,6 +318,13 @@ export default function EntriesView({
           <option value="nonrecurring">Non-recurring only</option>
         </select>
       </div>
+
+      <SearchBox
+        basePath="/entries"
+        others={searchOthers}
+        initialQuery={searchQuery}
+        matched={searchQuery ? filtered.length : null}
+      />
 
       {filterCat && (
         <Link href={`/categories/${filterCat}`} className={styles.catLink}>

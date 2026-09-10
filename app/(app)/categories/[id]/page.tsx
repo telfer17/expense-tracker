@@ -4,7 +4,9 @@ import { createClient } from "@/lib/supabase/server";
 import { monthLabel, monthRange } from "@/lib/month";
 import { buildPeriods, periodFor } from "@/lib/periods";
 import { resolveRange, type RangeView } from "@/lib/range";
+import { likePattern } from "@/lib/search";
 import RangeFilter from "@/components/RangeFilter";
+import SearchBox from "@/components/SearchBox";
 import totals from "@/components/EntriesView.module.css";
 import styles from "./category.module.css";
 
@@ -26,10 +28,15 @@ export default async function CategoryPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ range?: string; from?: string; to?: string }>;
+  searchParams: Promise<{
+    range?: string;
+    from?: string;
+    to?: string;
+    q?: string;
+  }>;
 }) {
   const { id } = await params;
-  const { range, from, to } = await searchParams;
+  const { range, from, to, q = "" } = await searchParams;
 
   // No valid range param means the current default: everything.
   const rv: RangeView = resolveRange(range, from, to) ?? {
@@ -39,6 +46,12 @@ export default async function CategoryPage({
     label: "All time",
   };
 
+  // The search box owns q and must keep the range params intact.
+  const searchOthers: Record<string, string> = {};
+  if (range) searchOthers.range = range;
+  if (from) searchOthers.from = from;
+  if (to) searchOthers.to = to;
+
   const supabase = await createClient();
   let entriesQuery = supabase
     .from("entries")
@@ -47,6 +60,7 @@ export default async function CategoryPage({
     .order("entry_date", { ascending: false });
   if (rv.from) entriesQuery = entriesQuery.gte("entry_date", rv.from);
   if (rv.to) entriesQuery = entriesQuery.lte("entry_date", rv.to);
+  if (q) entriesQuery = entriesQuery.ilike("note", likePattern(q));
 
   const [
     { data: category },
@@ -79,12 +93,14 @@ export default async function CategoryPage({
 
   // Drilldown links must cover exactly the entries counted in the row: when
   // the active range clips a group, link to the intersection as a custom
-  // range instead of the whole month/period.
+  // range instead of the whole month/period, and an active search carries
+  // over so the sums still match.
+  const qSuffix = q ? `&q=${encodeURIComponent(q)}` : "";
   const groupHref = (start: string, end: string, plain: string): string => {
     const from = rv.from && rv.from > start ? rv.from : start;
     const to = rv.to && rv.to < end ? rv.to : end;
-    if (from === start && to === end) return plain;
-    return `/entries?range=custom&from=${from}&to=${to}&cat=${category.id}`;
+    if (from === start && to === end) return `${plain}${qSuffix}`;
+    return `/entries?range=custom&from=${from}&to=${to}&cat=${category.id}${qSuffix}`;
   };
 
   // Group into periods (or calendar months with no markers), newest first —
@@ -142,7 +158,15 @@ export default async function CategoryPage({
         preset={rv.preset}
         from={rv.from}
         to={rv.to}
+        others={q ? { q } : {}}
         defaultPreset="all"
+      />
+
+      <SearchBox
+        basePath={`/categories/${category.id}`}
+        others={searchOthers}
+        initialQuery={q}
+        matched={q ? (entries ?? []).length : null}
       />
 
       <p className={styles.rangeNote}>{rv.label}</p>
@@ -164,7 +188,11 @@ export default async function CategoryPage({
 
       {groupList.length === 0 ? (
         <p className={styles.empty}>
-          {rv.preset === "all" ? "No entries." : "No entries in this range."}
+          {q
+            ? "No entries match."
+            : rv.preset === "all"
+              ? "No entries."
+              : "No entries in this range."}
         </p>
       ) : (
         <>
