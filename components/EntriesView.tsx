@@ -388,7 +388,9 @@ export default function EntriesView({
                       e.direction === "in" ? styles.amountIn : styles.amountOut
                     }
                   >
-                    {e.direction === "in" ? "+" : "−"}
+                    <span className={styles.sign}>
+                      {e.direction === "in" ? "+" : "−"}
+                    </span>
                     {gbp.format(Number(e.amount))}
                   </span>
                   <span className={styles.entryDate}>

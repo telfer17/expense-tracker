@@ -172,6 +172,9 @@
   flex-direction: column;
   gap: 0.125rem;
   min-width: 0;
+  /* Absorb the free space so the amount column packs right against the
+     chevron instead of floating between left text and chevron. */
+  flex: 1;
 }
 
 .entryCat {
@@ -198,6 +201,13 @@
 .amountOut {
   font-weight: 600;
   font-variant-numeric: tabular-nums;
+}
+
+/* +/− glyphs differ in width; a fixed slot keeps the £ column aligned. */
+.sign {
+  display: inline-block;
+  width: 1ch;
+  text-align: center;
 }
 
 .amountIn {

@@ -676,7 +676,9 @@ export default function EntryForm({
                   onClick={() => void editPending(e)}
                   aria-label="Edit this entry"
                 >
-                  {e.direction === "out" ? "−" : "+"}
+                  <span className={styles.sign}>
+                    {e.direction === "out" ? "−" : "+"}
+                  </span>
                   {gbp.format(e.amount)} · {e.categoryName}
                   {e.note && ` · ${e.note}`}
                 </button>

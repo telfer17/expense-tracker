@@ -555,9 +555,16 @@ export default function ImportView({
                             : styles.sumAmount
                         }
                       >
-                        {r.amount
-                          ? `${r.direction === "in" ? "+" : "−"}${r.amount}`
-                          : "—"}
+                        {r.amount ? (
+                          <>
+                            <span className={styles.sign}>
+                              {r.direction === "in" ? "+" : "−"}
+                            </span>
+                            {r.amount}
+                          </>
+                        ) : (
+                          "—"
+                        )}
                       </span>
                     </button>
                   </div>
