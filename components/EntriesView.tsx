@@ -34,6 +34,7 @@ export default function EntriesView({
   rangeOthers = {},
   searchQuery = "",
   searchOthers = {},
+  runningBalance = null,
 }: {
   view: PeriodView;
   mode: "month" | "salary";
@@ -47,6 +48,10 @@ export default function EntriesView({
   rangeOthers?: Record<string, string>;
   searchQuery?: string; // active note search; entries are already filtered
   searchOthers?: Record<string, string>;
+  // Balance just before this view's first counted entry, plus the anchor
+  // date; entries dated before it get no balance. Null = feature off, or
+  // the server view is filtered (range/search).
+  runningBalance?: { start: number; startDate: string } | null;
 }) {
   const router = useRouter();
   const [filterCat, setFilterCat] = useState(initialCat);
@@ -88,6 +93,22 @@ export default function EntriesView({
   const outSum = totalsBase
     .filter((e) => e.direction === "out")
     .reduce((s, e) => s + Number(e.amount), 0);
+
+  // A running balance over a filtered subset would be wrong numbers, so it
+  // hides whenever any client-side filter narrows the list. Entries render
+  // newest-first; walking them backwards is oldest-first date order (the
+  // server sorts by entry_date then created_at).
+  let balanceById: Map<string, number> | null = null;
+  if (runningBalance && !filterCat && filterRec === "all" && !filterDir) {
+    balanceById = new Map();
+    let bal = runningBalance.start;
+    for (let i = entries.length - 1; i >= 0; i--) {
+      const e = entries[i];
+      if (e.entry_date < runningBalance.startDate) continue;
+      bal += e.direction === "in" ? Number(e.amount) : -Number(e.amount);
+      balanceById.set(e.id, bal);
+    }
+  }
 
   async function setMode(next: "month" | "salary") {
     if (next === mode || switchingMode) return;
@@ -375,7 +396,16 @@ export default function EntriesView({
                       "en-GB",
                       { day: "numeric", month: "short" }
                     )}
+                    {balanceById?.has(e.id) && (
+                      <span className={styles.entryBalance}>
+                        {" · "}
+                        {gbp.format(balanceById.get(e.id)!)}
+                      </span>
+                    )}
                   </span>
+                </span>
+                <span className={styles.entryChevron} aria-hidden="true">
+                  ›
                 </span>
               </button>
             </li>

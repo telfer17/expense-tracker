@@ -43,7 +43,10 @@ export default async function EntriesPage({
     { data: categories },
   ] = await Promise.all([
     supabase.auth.getClaims(),
-    supabase.from("user_settings").select("period_mode").maybeSingle(),
+    supabase
+      .from("user_settings")
+      .select("period_mode, starting_balance, starting_balance_date")
+      .maybeSingle(),
     supabase.from("periods").select("start_date").order("start_date"),
     supabase.from("entries").select("entry_date").order("entry_date").limit(1),
     supabase.from("categories").select("id, name").order("name"),
@@ -145,6 +148,43 @@ export default async function EntriesPage({
 
   const initialCat = (categories ?? []).some((c) => c.id === cat) ? cat! : "";
 
+  // Running balance: only meaningful over the unfiltered ledger, so it's
+  // computed for the plain month/period view and never in range or search
+  // mode. `start` is the balance immediately before this view's first
+  // counted entry: the anchor balance plus the net of everything between
+  // the anchor date and the view start.
+  let runningBalance: { start: number; startDate: string } | null = null;
+  const sbDate: string | null = settingsRow?.starting_balance_date ?? null;
+  if (
+    settingsRow?.starting_balance !== null &&
+    settingsRow?.starting_balance !== undefined &&
+    sbDate &&
+    !rangeView &&
+    !q
+  ) {
+    let prefixNet = 0;
+    if (sbDate < view.start) {
+      // Aggregated in the database — fetching rows would silently truncate
+      // at PostgREST's 1,000-row limit and anchor the balance wrong.
+      const { data: prefixSum, error: prefixError } = await supabase.rpc(
+        "entries_net_before",
+        { p_from: sbDate, p_to: view.start }
+      );
+      // Fail loudly, like entriesError above — a swallowed failure here
+      // would render a wrong balance instead of none.
+      if (prefixError) {
+        throw new Error(
+          `Couldn't compute the running balance: ${prefixError.message}`
+        );
+      }
+      prefixNet = Number(prefixSum ?? 0);
+    }
+    runningBalance = {
+      start: Number(settingsRow.starting_balance) + prefixNet,
+      startDate: sbDate,
+    };
+  }
+
   // Search params each control must preserve when it rewrites the URL:
   // the range control owns range/from/to, the search box owns q; each
   // keeps the other's params (and month/period/cat) intact.
@@ -173,6 +213,7 @@ export default async function EntriesPage({
       rangeOthers={rangeOthers}
       searchQuery={q}
       searchOthers={searchOthers}
+      runningBalance={runningBalance}
     />
   );
 }
