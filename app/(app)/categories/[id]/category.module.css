@@ -10,6 +10,31 @@
   margin: 0;
 }
 
+.viewToggle {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  overflow: hidden;
+}
+
+.viewLink,
+.viewActive {
+  flex: 1;
+  padding: 0.625rem;
+  text-align: center;
+  text-decoration: none;
+  background: var(--bg);
+  color: var(--muted);
+  font-size: 0.9375rem;
+  font-weight: 500;
+}
+
+.viewActive {
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font-weight: 600;
+}
+
 .rangeNote {
   color: var(--muted);
   font-size: 0.75rem;
