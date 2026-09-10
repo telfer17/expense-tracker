@@ -1,14 +1,23 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
 import { computeFingerprint } from "@/lib/fingerprint";
-import { ukToday } from "@/lib/month";
+import { addDays, ukToday } from "@/lib/month";
 import type { Category, Direction, Entry } from "@/lib/types";
 import CategoryPicker from "./CategoryPicker";
 import styles from "./EntryForm.module.css";
+import overlayStyles from "./EntriesView.module.css";
+
+// A recent distinct entry offered as a one-tap prefill on the add screen.
+export type QuickAddItem = {
+  label: string;
+  note: string;
+  categoryId: string | null;
+  direction: Direction;
+};
 
 type PendingEntry = {
   tempId: string;
@@ -32,6 +41,7 @@ export default function EntryForm({
   initialCategories,
   periodTotals,
   periodNote,
+  quickAdd,
   edit,
   onClose,
 }: {
@@ -46,6 +56,7 @@ export default function EntryForm({
     out: number;
   };
   periodNote?: string | null;
+  quickAdd?: QuickAddItem[];
   edit?: Entry;
   onClose?: (changed: boolean) => void;
 }) {
@@ -64,6 +75,18 @@ export default function EntryForm({
   const [pending, setPending] = useState<PendingEntry[]>([]);
   const [busy, setBusy] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
+  const [dupWarning, setDupWarning] = useState<{
+    amount: number;
+    category: string;
+    date: string;
+    note: string | null;
+  } | null>(null);
+  // A saved session entry being edited in the overlay: its local row plus
+  // the DB id its save resolved to.
+  const [pendingEdit, setPendingEdit] = useState<{
+    tempId: string;
+    dbId: string;
+  } | null>(null);
   const amountRef = useRef<HTMLInputElement>(null);
   // Per pending entry: the in-flight save (resolves to the DB id), and the id
   // of a category the save created inline, so undo can clean it up.
@@ -79,6 +102,61 @@ export default function EntryForm({
     (c) => c.name.toLowerCase() === trimmedQuery.toLowerCase()
   );
   const canSave = amountValid && trimmedQuery.length > 0;
+
+  // Duplicate warning: same amount + category within the last 7 days,
+  // debounced so it doesn't query on every keystroke. Recurring is out on
+  // both sides — those legitimately repeat. A warning only, never a block.
+  const dupCat = selectedCat ?? exactMatch ?? null;
+  const dupAmount = amountValid ? Math.round(parsedAmount * 100) / 100 : null;
+  useEffect(() => {
+    setDupWarning(null);
+    if (edit || dupAmount === null || !dupCat || isRecurring) return;
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      const { data } = await createClient()
+        .from("entries")
+        .select("entry_date, note")
+        .eq("category_id", dupCat.id)
+        .eq("amount", dupAmount)
+        .eq("is_recurring", false)
+        .gte("entry_date", addDays(ukToday(), -7))
+        .order("entry_date", { ascending: false })
+        .limit(1);
+      if (!cancelled && data?.[0]) {
+        setDupWarning({
+          amount: dupAmount,
+          category: dupCat.name,
+          date: data[0].entry_date,
+          note: data[0].note,
+        });
+      }
+    }, 500);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [edit, dupAmount, dupCat, isRecurring]);
+
+  useEffect(() => {
+    if (!pendingEdit) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setPendingEdit(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [pendingEdit]);
+
+  function applyQuickAdd(item: QuickAddItem) {
+    const cat = item.categoryId
+      ? categories.find((c) => c.id === item.categoryId) ?? null
+      : null;
+    setSelectedCat(cat);
+    setCatQuery(cat?.name ?? "");
+    setNote(item.note);
+    setDirection(item.direction);
+    // The amount is always typed fresh.
+    amountRef.current?.focus();
+  }
 
   function currentMatch(): Category | null {
     if (
@@ -248,6 +326,50 @@ export default function EntryForm({
     setPending((prev) => prev.filter((e) => e.tempId !== entry.tempId));
   }
 
+  // Session entries are editable in place once their save has an id.
+  async function editPending(entry: PendingEntry) {
+    const promise = syncPromises.current.get(entry.tempId);
+    if (!promise) return;
+    let dbId: string;
+    try {
+      dbId = await promise;
+    } catch {
+      return; // the save failed; the row already offers retry
+    }
+    setPendingEdit({ tempId: entry.tempId, dbId });
+  }
+
+  // After an overlay edit, re-read the entry so the session row (and the
+  // optimistic strip totals) reflect what's actually stored now.
+  async function refreshPending(tempId: string, dbId: string) {
+    const { data } = await createClient()
+      .from("entries")
+      .select(
+        "amount, direction, category_id, entry_date, note, is_recurring, categories(name)"
+      )
+      .eq("id", dbId)
+      .maybeSingle();
+    if (!data) {
+      // Deleted from the edit overlay.
+      syncPromises.current.delete(tempId);
+      createdCategoryIds.current.delete(tempId);
+      setPending((prev) => prev.filter((e) => e.tempId !== tempId));
+      return;
+    }
+    const cat = Array.isArray(data.categories)
+      ? data.categories[0]
+      : data.categories;
+    updateEntry(tempId, {
+      amount: Number(data.amount),
+      direction: data.direction,
+      categoryId: data.category_id,
+      categoryName: cat?.name ?? "",
+      entryDate: data.entry_date,
+      note: data.note ?? "",
+      isRecurring: data.is_recurring,
+    });
+  }
+
   async function saveEdit() {
     if (!edit) return;
     setBusy(true);
@@ -360,6 +482,10 @@ export default function EntryForm({
   }
   const stripNet = stripIn - stripOut;
 
+  const editingPending = pendingEdit
+    ? pending.find((p) => p.tempId === pendingEdit.tempId) ?? null
+    : null;
+
   return (
     <>
       {!edit && periodTotals && (
@@ -393,6 +519,25 @@ export default function EntryForm({
         <p className={styles.periodNote}>
           {periodNote} <Link href="/entries">Review entries</Link>
         </p>
+      )}
+
+      {!edit && quickAdd && quickAdd.length > 0 && (
+        <div
+          className={styles.quickChips}
+          role="group"
+          aria-label="Quick add from recent entries"
+        >
+          {quickAdd.map((item, i) => (
+            <button
+              key={i}
+              type="button"
+              className={styles.quickChip}
+              onClick={() => applyQuickAdd(item)}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
       )}
 
       <form onSubmit={handleSubmit} className={styles.form}>
@@ -467,6 +612,18 @@ export default function EntryForm({
           aria-label="Note"
         />
 
+        {!edit && dupWarning && (
+          <p className={styles.dupNote}>
+            You added {gbp.format(dupWarning.amount)} to {dupWarning.category}{" "}
+            on{" "}
+            {new Date(`${dupWarning.date}T00:00:00`).toLocaleDateString(
+              "en-GB",
+              { day: "numeric", month: "short" }
+            )}
+            {dupWarning.note ? ` — “${dupWarning.note}”` : ""}
+          </p>
+        )}
+
         {editError && <p className={styles.formError}>{editError}</p>}
 
         <button type="submit" className={styles.save} disabled={!canSave || busy}>
@@ -509,11 +666,16 @@ export default function EntryForm({
                     : styles.recentItem
                 }
               >
-                <span className={styles.recentText}>
+                <button
+                  type="button"
+                  className={styles.recentText}
+                  onClick={() => void editPending(e)}
+                  aria-label="Edit this entry"
+                >
                   {e.direction === "out" ? "−" : "+"}
                   {gbp.format(e.amount)} · {e.categoryName}
                   {e.note && ` · ${e.note}`}
-                </span>
+                </button>
                 <span className={styles.rowEnd}>
                   {e.status === "saving" && (
                     <span className={styles.status}>Saving…</span>
@@ -552,6 +714,43 @@ export default function EntryForm({
             );
           })}
         </ul>
+      )}
+
+      {!edit && pendingEdit && editingPending && (
+        <div
+          className={overlayStyles.overlay}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="edit-session-entry-title"
+        >
+          <div className={overlayStyles.overlayInner}>
+            <h2
+              id="edit-session-entry-title"
+              className={overlayStyles.overlayTitle}
+            >
+              Edit entry
+            </h2>
+            <EntryForm
+              userId={userId}
+              initialCategories={categories}
+              edit={{
+                id: pendingEdit.dbId,
+                amount: editingPending.amount,
+                direction: editingPending.direction,
+                category_id: editingPending.categoryId ?? "",
+                entry_date: editingPending.entryDate,
+                note: editingPending.note || null,
+                is_recurring: editingPending.isRecurring,
+                import_batch: null,
+              }}
+              onClose={(changed) => {
+                const pe = pendingEdit;
+                setPendingEdit(null);
+                if (changed && pe) void refreshPending(pe.tempId, pe.dbId);
+              }}
+            />
+          </div>
+        </div>
       )}
     </>
   );

@@ -209,6 +209,19 @@
   font-size: 0.8125rem;
 }
 
+.entryBalance {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.entryChevron {
+  flex-shrink: 0;
+  color: var(--muted);
+  font-size: 1.125rem;
+  opacity: 0.7;
+}
+
 .copyBtn {
   padding: 0.75rem;
   border: 1px solid var(--border);

@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { ukToday } from "@/lib/month";
 import { buildPeriods, daysBetween, resolveView, viewHref } from "@/lib/periods";
-import EntryForm from "@/components/EntryForm";
+import EntryForm, { type QuickAddItem } from "@/components/EntryForm";
 
 export default async function AddPage() {
   const supabase = await createClient();
@@ -12,6 +12,7 @@ export default async function AddPage() {
     { data: categories },
     { data: markerRows },
     { data: earliestRows },
+    { data: recentRows },
   ] = await Promise.all([
     supabase.auth.getClaims(),
     supabase.from("user_settings").select("period_mode").maybeSingle(),
@@ -22,6 +23,12 @@ export default async function AddPage() {
       .select("entry_date")
       .order("entry_date")
       .limit(1),
+    supabase
+      .from("entries")
+      .select("note, category_id, direction")
+      .order("entry_date", { ascending: false })
+      .order("created_at", { ascending: false })
+      .limit(50),
   ]);
 
   const userId = claims?.claims?.sub;
@@ -49,6 +56,28 @@ export default async function AddPage() {
     else totals.out += Number(e.amount);
   }
 
+  // The 5 most recent distinct entries (by note + category) as one-tap
+  // prefills. Labelled by note, falling back to the category name.
+  const catName = new Map((categories ?? []).map((c) => [c.id, c.name]));
+  const seen = new Set<string>();
+  const quickAdd: QuickAddItem[] = [];
+  for (const r of recentRows ?? []) {
+    const note = (r.note ?? "").trim();
+    const label =
+      note || (r.category_id ? catName.get(r.category_id) ?? "" : "");
+    if (!label) continue;
+    const key = `${note.toLowerCase()}|${r.category_id ?? ""}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    quickAdd.push({
+      label,
+      note,
+      categoryId: r.category_id,
+      direction: r.direction,
+    });
+    if (quickAdd.length === 5) break;
+  }
+
   let periodNote: string | null = null;
   if (salaryMode && view.mode === "period") {
     const days = daysBetween(view.start, ukToday());
@@ -69,6 +98,7 @@ export default async function AddPage() {
         ...totals,
       }}
       periodNote={periodNote}
+      quickAdd={quickAdd}
     />
   );
 }

@@ -1,0 +1,75 @@
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  padding: 0.875rem;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+}
+
+.heading {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+.hint {
+  color: var(--muted);
+  font-size: 0.8125rem;
+  margin: 0;
+}
+
+.fields {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.input {
+  flex: 1;
+  min-width: 0;
+  padding: 0.625rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--bg);
+  font-size: 0.9375rem;
+}
+
+.actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.saveBtn {
+  flex: 1;
+  padding: 0.625rem;
+  border: none;
+  border-radius: 0.5rem;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font-weight: 600;
+}
+
+.saveBtn:disabled {
+  opacity: 0.4;
+}
+
+.clearBtn {
+  padding: 0.625rem 0.875rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: none;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.msg {
+  color: var(--muted);
+  font-size: 0.875rem;
+  margin: 0;
+}
+
+.error {
+  color: var(--danger);
+  font-size: 0.875rem;
+  margin: 0;
+}
