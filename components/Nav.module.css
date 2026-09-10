@@ -13,11 +13,14 @@
 .link,
 .active {
   flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   text-align: center;
-  padding: 0.875rem 0.5rem;
+  padding: 0.875rem 0.25rem;
   text-decoration: none;
   color: var(--muted);
-  font-size: 0.875rem;
+  font-size: 0.8125rem;
   font-weight: 500;
 }
 
