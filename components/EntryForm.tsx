@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import Link from "next/link";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
+import { computeFingerprint } from "@/lib/fingerprint";
 import { ukToday } from "@/lib/month";
 import type { Category, Direction, Entry } from "@/lib/types";
 import CategoryPicker from "./CategoryPicker";
@@ -144,6 +145,15 @@ export default function EntryForm({
       updateEntry(entry.tempId, { categoryId });
     }
 
+    // Manual entries fingerprint their note (null when it's empty — never
+    // matches), so a statement row covering the same transaction can be
+    // flagged as a duplicate on import.
+    const fingerprint = await computeFingerprint(
+      entry.entryDate,
+      entry.amount,
+      entry.note
+    );
+
     const insertEntry = (catId: string) =>
       supabase
         .from("entries")
@@ -155,6 +165,7 @@ export default function EntryForm({
           entry_date: entry.entryDate,
           note: entry.note || null,
           is_recurring: entry.isRecurring,
+          fingerprint,
         })
         .select("id")
         .single();
@@ -249,6 +260,9 @@ export default function EntryForm({
         match?.name ?? trimmedQuery,
         match?.id ?? null
       );
+      // Deliberately no fingerprint here: imported entries were
+      // fingerprinted from the raw statement description, which this form
+      // doesn't have — recomputing from the note would corrupt matching.
       const { error } = await supabase
         .from("entries")
         .update({

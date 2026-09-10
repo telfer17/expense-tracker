@@ -49,55 +49,189 @@
   opacity: 0.5;
 }
 
+.bulkBar {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.625rem 0 0.75rem;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+
+/* Sit below the top nav, which is sticky on desktop. */
+@media (min-width: 768px) {
+  .bulkBar {
+    top: 2.8125rem;
+  }
+}
+
+.bulkCounts {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--muted);
+}
+
+.bulkCounts strong {
+  color: var(--text);
+}
+
+.bulkActions,
+.bulkAssign {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.bulkBtn {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.875rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.bulkBtn:disabled {
+  opacity: 0.4;
+}
+
+.bulkSelect {
+  flex: 1;
+  min-width: 0;
+  padding: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 0.875rem;
+}
+
 .rows {
   list-style: none;
   margin: 0;
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 0.5rem;
 }
 
 .row,
 .rowExcluded {
   display: flex;
   flex-direction: column;
-  gap: 0.625rem;
-  padding: 0.75rem;
+  padding: 0.5rem 0.75rem;
   border: 1px solid var(--border);
   border-radius: 0.75rem;
 }
 
-.rowExcluded > *:not(.rowTop) {
+.rowExcluded .summaryBtn,
+.rowExcluded .expanded {
   opacity: 0.4;
 }
 
-.rowTop {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.375rem 0.75rem;
-}
-
-.rowTop input[type="date"] {
-  flex: 1;
-  min-width: 0;
-}
-
-.include {
+.summary {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  font-size: 0.875rem;
-  font-weight: 500;
-  color: var(--muted);
-  white-space: nowrap;
+  gap: 0.625rem;
 }
 
-.include input {
+.includeBox {
+  flex-shrink: 0;
   width: 1.25rem;
   height: 1.25rem;
   accent-color: var(--accent);
+}
+
+.summaryBtn {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.375rem 0;
+  border: none;
+  background: none;
+  text-align: left;
+  color: var(--text);
+  font-size: 0.875rem;
+}
+
+.sumDate {
+  flex-shrink: 0;
+  min-width: 3.25rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.sumDesc {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sumCat,
+.sumNoCat {
+  flex-shrink: 1;
+  min-width: 0;
+  max-width: 7rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0.125rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  font-size: 0.75rem;
+}
+
+.sumNoCat {
+  border-style: dashed;
+  background: none;
+  color: var(--muted);
+}
+
+/* Guessed (not user-picked) category: outlined in the accent colour. */
+.sumCatGuessed {
+  composes: sumCat;
+  border-color: var(--accent);
+  background: none;
+  color: var(--accent);
+}
+
+.dupBadge {
+  flex-shrink: 0;
+  padding: 0.125rem 0.5rem;
+  border: 1px solid var(--danger);
+  border-radius: 999px;
+  color: var(--danger);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.sumAmount,
+.sumAmountIn {
+  flex-shrink: 0;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.sumAmountIn {
+  color: var(--accent);
+}
+
+.expanded {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  margin-top: 0.375rem;
+  padding-top: 0.625rem;
+  border-top: 1px solid var(--border);
 }
 
 .descField {
@@ -122,4 +256,17 @@
 .rowMid > * {
   flex: 1;
   min-width: 0;
+}
+
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.pagerInfo {
+  font-size: 0.875rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
 }
