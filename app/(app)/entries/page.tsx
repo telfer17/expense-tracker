@@ -65,7 +65,9 @@ export default async function EntriesPage({
 
   let query = supabase
     .from("entries")
-    .select("id, amount, direction, category_id, entry_date, note, is_recurring")
+    .select(
+      "id, amount, direction, category_id, entry_date, note, is_recurring, import_batch"
+    )
     .order("entry_date", { ascending: false })
     .order("created_at", { ascending: false });
   if (rangeView) {

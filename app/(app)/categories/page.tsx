@@ -24,6 +24,9 @@ export default async function CategoriesPage() {
     <div className={styles.page}>
       <h1 className={styles.title}>Categories</h1>
       <CategoriesManager categories={categories} />
+      <a href="/api/export" className={styles.export} download>
+        Download all entries (CSV)
+      </a>
       <form action={logout}>
         <button type="submit" className={styles.logout}>
           Log out
