@@ -52,13 +52,30 @@ export default async function InsightsPage({
   const rangeView = resolveRange(range, from, to);
 
   const supabase = await createClient();
-  const [{ data: settingsRow }, { data: markerRows }, { data: earliestRows }, { data: categories }] =
+  const [settingsRes, markersRes, earliestRes, categoriesRes] =
     await Promise.all([
       supabase.from("user_settings").select("period_mode").maybeSingle(),
       supabase.from("periods").select("start_date").order("start_date"),
       supabase.from("entries").select("entry_date").order("entry_date").limit(1),
       supabase.from("categories").select("id, name").order("name"),
     ]);
+
+  // Fail loudly, like fetchOut below — a swallowed error here would render
+  // as missing periods or nameless categories instead of a visible failure.
+  for (const [what, res] of [
+    ["settings", settingsRes],
+    ["periods", markersRes],
+    ["entries", earliestRes],
+    ["categories", categoriesRes],
+  ] as const) {
+    if (res.error) {
+      throw new Error(`Couldn't load ${what}: ${res.error.message}`);
+    }
+  }
+  const settingsRow = settingsRes.data;
+  const markerRows = markersRes.data;
+  const earliestRows = earliestRes.data;
+  const categories = categoriesRes.data;
 
   const periods =
     settingsRow?.period_mode === "salary"
