@@ -54,8 +54,15 @@ function fullDate(iso: string): string {
     : iso;
 }
 
-function signed(amount: number, negative: boolean): string {
-  return `${negative ? "−" : "+"}${gbp.format(amount)}`;
+// The sign sits in a fixed-width slot (see .sign) so the £ column stays
+// aligned — the +/− glyphs themselves have different widths.
+function Signed({ amount, negative }: { amount: number; negative: boolean }) {
+  return (
+    <>
+      <span className={styles.sign}>{negative ? "−" : "+"}</span>
+      {gbp.format(amount)}
+    </>
+  );
 }
 
 export default function NoteGroups({ groups }: { groups: NoteGroup[] }) {
@@ -88,10 +95,17 @@ export default function NoteGroups({ groups }: { groups: NoteGroup[] }) {
                       : styles.typical
                   }
                 >
-                  {signed(g.typicalAmount, g.typicalDirection === "out")}
+                  <Signed
+                    amount={g.typicalAmount}
+                    negative={g.typicalDirection === "out"}
+                  />
                 </span>
                 <span className={styles.total}>
-                  {signed(Math.abs(g.totalNet), g.totalNet < 0)} total
+                  <Signed
+                    amount={Math.abs(g.totalNet)}
+                    negative={g.totalNet < 0}
+                  />{" "}
+                  total
                 </span>
               </span>
               <span
@@ -111,7 +125,7 @@ export default function NoteGroups({ groups }: { groups: NoteGroup[] }) {
                         e.direction === "in" ? styles.amountIn : undefined
                       }
                     >
-                      {signed(e.amount, e.direction === "out")}
+                      <Signed amount={e.amount} negative={e.direction === "out"} />
                     </span>
                   </li>
                 ))}

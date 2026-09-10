@@ -225,6 +225,12 @@
   color: var(--accent);
 }
 
+.sign {
+  display: inline-block;
+  width: 1ch;
+  text-align: center;
+}
+
 .expanded {
   display: flex;
   flex-direction: column;
