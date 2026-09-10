@@ -34,7 +34,7 @@ export default function SearchBox({
     () => () => {
       if (timer.current) clearTimeout(timer.current);
     },
-    []
+    [],
   );
 
   function url(q: string): string {
@@ -58,8 +58,8 @@ export default function SearchBox({
           ref={inputRef}
           type="search"
           className={styles.input}
-          placeholder="Search notes"
-          aria-label="Search notes"
+          placeholder="Search"
+          aria-label="Search"
           value={value}
           onChange={(e) => update(e.target.value)}
         />

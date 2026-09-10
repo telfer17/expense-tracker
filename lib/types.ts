@@ -13,4 +13,6 @@ export type Entry = {
   entry_date: string;
   note: string | null;
   is_recurring: boolean;
+  // Null for manually created entries; set when a statement import made it.
+  import_batch: string | null;
 };

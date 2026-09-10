@@ -6,10 +6,13 @@ import { ukToday } from "@/lib/month";
 export const dynamic = "force-dynamic";
 
 // RFC 4180: quote a field if it contains a comma, quote, or newline;
-// double any quotes inside it.
+// double any quotes inside it. Values starting with =, +, - or @ get an
+// apostrophe prefix first, so spreadsheet apps treat them as text rather
+// than formulas (CSV injection guard).
 function csvField(value: string): string {
-  if (/[",\n\r]/.test(value)) return `"${value.replace(/"/g, '""')}"`;
-  return value;
+  const guarded = /^[=+\-@]/.test(value) ? `'${value}` : value;
+  if (/[",\n\r]/.test(guarded)) return `"${guarded.replace(/"/g, '""')}"`;
+  return guarded;
 }
 
 type ExportRow = {

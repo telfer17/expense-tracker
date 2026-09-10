@@ -274,7 +274,7 @@ export default function ImportView({
       if (invalidAmount || invalidDate) {
         // Jump to the offending row so the error isn't on a hidden page.
         const idx = rows.findIndex((x) => x.id === r.id);
-        if (idx >= 0) setPage(Math.floor(idx / PAGE_SIZE));
+        if (idx >= 0) goToPage(Math.floor(idx / PAGE_SIZE));
         setExpandedId(r.id);
         setError(
           `"${label}" has an invalid ${invalidAmount ? "amount" : "date"}.`

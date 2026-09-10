@@ -260,18 +260,25 @@ export default function EntryForm({
         match?.name ?? trimmedQuery,
         match?.id ?? null
       );
-      // Deliberately no fingerprint here: imported entries were
-      // fingerprinted from the raw statement description, which this form
-      // doesn't have — recomputing from the note would corrupt matching.
+      // Manual entries keep their fingerprint in step with edits. Imported
+      // entries (import_batch set) keep their original untouched — theirs
+      // was computed from the raw statement description, which this form
+      // doesn't have, and recomputing from the note would corrupt matching.
+      const amount = Math.round(parsedAmount * 100) / 100;
+      const fingerprintPatch =
+        edit.import_batch === null
+          ? { fingerprint: await computeFingerprint(entryDate, amount, note.trim()) }
+          : {};
       const { error } = await supabase
         .from("entries")
         .update({
-          amount: Math.round(parsedAmount * 100) / 100,
+          amount,
           direction,
           category_id: categoryId,
           entry_date: entryDate,
           note: note.trim() || null,
           is_recurring: isRecurring,
+          ...fingerprintPatch,
         })
         .eq("id", edit.id);
       if (error) throw error;
