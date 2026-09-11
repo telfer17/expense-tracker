@@ -150,14 +150,38 @@
   flex: 1;
   min-width: 0;
   display: flex;
-  align-items: center;
-  gap: 0.5rem;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.25rem;
   padding: 0.375rem 0;
   border: none;
   background: none;
   text-align: left;
   color: var(--text);
   font-size: 0.875rem;
+}
+
+/* Line 1: date · description (all remaining width) · amount. */
+.sumMain {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+/* Line 2: badges and the category chip, indented past the date column so
+   they line up under the description. Empty when a row has neither. */
+.sumMeta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.375rem 0.5rem;
+  min-width: 0;
+  padding-left: 3.75rem;
+}
+
+.sumMeta:empty {
+  display: none;
 }
 
 .sumDate {
@@ -219,20 +243,31 @@
 }
 
 /* Looser match (same date/amount/direction, different description): amber
-   and dashed to read as "check me", not "skip me". Truncates so a long
-   existing note can't crowd out the amount. */
+   and dashed to read as "check me", not "skip me". The badge text stays
+   short; the matching entry's details live in the expanded state. */
 .nearDupBadge {
-  flex-shrink: 1;
-  min-width: 0;
-  max-width: 16rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  flex-shrink: 0;
   padding: 0.125rem 0.5rem;
   border: 1px dashed var(--warn);
   border-radius: 999px;
   color: var(--warn);
   font-size: 0.75rem;
   white-space: nowrap;
+}
+
+.dupDetail,
+.nearDupDetail {
+  margin: 0;
+  font-size: 0.8125rem;
+  overflow-wrap: anywhere;
+}
+
+.dupDetail {
+  color: var(--danger);
+}
+
+.nearDupDetail {
+  color: var(--warn);
 }
 
 .sumAmount,
