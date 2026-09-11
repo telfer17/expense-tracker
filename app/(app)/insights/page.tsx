@@ -12,22 +12,23 @@ const gbp = new Intl.NumberFormat("en-GB", {
   currency: "GBP",
 });
 
-type OutRow = { amount: number; category_id: string | null; note: string | null };
+type EntryRow = { amount: number; category_id: string | null; note: string | null };
 
-// All outgoings in a window, paged past PostgREST's 1,000-row cap so an
-// all-time view aggregates everything rather than a silent first page.
-async function fetchOut(
+// All entries in one direction in a window, paged past PostgREST's 1,000-row
+// cap so an all-time view aggregates everything rather than a silent first page.
+async function fetchEntries(
   supabase: SupabaseClient,
+  direction: "in" | "out",
   from: string | null,
   to: string | null
-): Promise<OutRow[]> {
+): Promise<EntryRow[]> {
   const PAGE = 1000;
-  const rows: OutRow[] = [];
+  const rows: EntryRow[] = [];
   for (let start = 0; ; start += PAGE) {
     let q = supabase
       .from("entries")
       .select("amount, category_id, note")
-      .eq("direction", "out")
+      .eq("direction", direction)
       .order("entry_date", { ascending: false })
       .order("id", { ascending: true })
       .range(start, start + PAGE - 1);
@@ -37,7 +38,7 @@ async function fetchOut(
     if (error) {
       throw new Error(`Couldn't load entries: ${error.message}`);
     }
-    rows.push(...((data as OutRow[]) ?? []));
+    rows.push(...((data as EntryRow[]) ?? []));
     if (!data || data.length < PAGE) break;
   }
   return rows;
@@ -46,10 +47,17 @@ async function fetchOut(
 export default async function InsightsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ range?: string; from?: string; to?: string }>;
+  searchParams: Promise<{
+    range?: string;
+    from?: string;
+    to?: string;
+    dir?: string;
+  }>;
 }) {
-  const { range, from, to } = await searchParams;
+  const { range, from, to, dir: rawDir } = await searchParams;
   const rangeView = resolveRange(range, from, to);
+  // In/Out toggle; anything other than an explicit ?dir=in is the default Out.
+  const dir: "in" | "out" = rawDir === "in" ? "in" : "out";
 
   const supabase = await createClient();
   const [settingsRes, markersRes, earliestRes, categoriesRes] =
@@ -111,16 +119,16 @@ export default async function InsightsPage({
     };
   }
 
-  const [outRows, prevRows] = await Promise.all([
-    fetchOut(supabase, curFrom, curTo),
-    prev ? fetchOut(supabase, prev.from, prev.to) : Promise.resolve([]),
+  const [rows, prevRows] = await Promise.all([
+    fetchEntries(supabase, dir, curFrom, curTo),
+    prev ? fetchEntries(supabase, dir, prev.from, prev.to) : Promise.resolve([]),
   ]);
 
-  // 1. Categories ranked by spend.
+  // 1. Categories ranked by amount.
   const catNameById = new Map((categories ?? []).map((c) => [c.id, c.name]));
   const byCat = new Map<string, { name: string; total: number; count: number }>();
-  let outTotal = 0;
-  for (const r of outRows) {
+  let total = 0;
+  for (const r of rows) {
     const key = r.category_id ?? "";
     let g = byCat.get(key);
     if (!g) {
@@ -133,7 +141,7 @@ export default async function InsightsPage({
     }
     g.total += Number(r.amount);
     g.count += 1;
-    outTotal += Number(r.amount);
+    total += Number(r.amount);
   }
   const ranked = [...byCat.entries()]
     .map(([id, g]) => ({ id: id || null, ...g }))
@@ -149,15 +157,22 @@ export default async function InsightsPage({
     const prevTotal = prevByCat.get(c.id ?? "") ?? 0;
     const diff = c.total - prevTotal;
     const pct = prevTotal > 0 ? (diff / prevTotal) * 100 : null;
-    // The signal: up more than 25% — or spending where there was none.
-    const spike = pct === null ? c.total > 0 : pct > 25;
+    // The signal flips with direction. Out: up more than 25% — or spending
+    // where there was none. In: more income is fine; a drop over 25% is the
+    // thing worth noticing (new income isn't a warning either).
+    const spike =
+      dir === "out"
+        ? pct === null
+          ? c.total > 0
+          : pct > 25
+        : pct !== null && pct < -25;
     return { ...c, prevTotal, diff, pct, spike };
   });
 
-  // 3. Small and frequent: outgoings grouped by note, same normalisation
+  // 3. Small and frequent: entries grouped by note, same normalisation
   // as the grouped category view (trimmed, case-insensitive).
   const byNote = new Map<string, { name: string; total: number; count: number }>();
-  for (const r of outRows) {
+  for (const r of rows) {
     const name = (r.note ?? "").trim();
     const key = name.toLowerCase();
     let g = byNote.get(key);
@@ -199,38 +214,80 @@ export default async function InsightsPage({
   const pctFmt = (pct: number): string =>
     `${pct >= 0 ? "+" : "−"}${Math.round(Math.abs(pct))}%`;
 
+  // In/Out toggle links: swap the dir param (Out is the default, so it gets
+  // no param) while keeping the current range in the URL.
+  const dirHref = (nextDir: "in" | "out"): string => {
+    const sp = new URLSearchParams();
+    if (rangeView) {
+      sp.set("range", rangeView.preset);
+      if (rangeView.preset === "custom") {
+        if (rangeView.from) sp.set("from", rangeView.from);
+        if (rangeView.to) sp.set("to", rangeView.to);
+      }
+    }
+    if (nextDir === "in") sp.set("dir", "in");
+    const qs = sp.toString();
+    return qs ? `/insights?${qs}` : "/insights";
+  };
+
   return (
     <div className={styles.page}>
       <h1 className={styles.title}>Insights</h1>
+
+      <div className={styles.dirRow} role="group" aria-label="Direction">
+        <Link
+          href={dirHref("out")}
+          className={dir === "out" ? styles.dirBtnActive : styles.dirBtn}
+          aria-current={dir === "out" ? "page" : undefined}
+        >
+          Out
+        </Link>
+        <Link
+          href={dirHref("in")}
+          className={dir === "in" ? styles.dirBtnActive : styles.dirBtn}
+          aria-current={dir === "in" ? "page" : undefined}
+        >
+          In
+        </Link>
+      </div>
 
       <RangeFilter
         basePath="/insights"
         preset={rangeView?.preset ?? null}
         from={rangeView?.from ?? null}
         to={rangeView?.to ?? null}
+        others={dir === "in" ? { dir: "in" } : {}}
         offLabel={view.mode === "month" ? "This month" : "This period"}
       />
 
-      <p className={styles.rangeNote}>{label}</p>
+      <p className={styles.rangeNote}>
+        {dir === "in" ? "Income" : "Outgoings"} · {label}
+      </p>
 
-      {outRows.length === 0 ? (
-        <p className={styles.empty}>No outgoings in this range.</p>
+      {rows.length === 0 ? (
+        <p className={styles.empty}>
+          {dir === "in"
+            ? "No income in this range."
+            : "No outgoings in this range."}
+        </p>
       ) : (
         <>
           <p className={styles.outTotal}>
-            Out <strong>{gbp.format(outTotal)}</strong> across {outRows.length}{" "}
-            {outRows.length === 1 ? "entry" : "entries"}
+            {dir === "in" ? "In" : "Out"} <strong>{gbp.format(total)}</strong>{" "}
+            across {rows.length} {rows.length === 1 ? "entry" : "entries"}
           </p>
 
           <section>
-            <h2 className={styles.sectionHead}>Where it went</h2>
+            <h2 className={styles.sectionHead}>
+              {dir === "in" ? "Where it came from" : "Where it went"}
+            </h2>
             <ul className={styles.list}>
               {ranked.map((c) => {
                 const inner = (
                   <>
                     <span className={styles.catName}>{c.name}</span>
                     <span className={styles.catMeta}>
-                      {c.count} · {Math.round((c.total / outTotal) * 100)}%
+                      {c.count} · {Math.round((c.total / total) * 100)}%
                     </span>
                     <span className={styles.catTotal}>{gbp.format(c.total)}</span>
                   </>
@@ -282,7 +339,8 @@ export default async function InsightsPage({
           <section>
             <h2 className={styles.sectionHead}>Small and frequent</h2>
             <p className={styles.sectionSub}>
-              Outgoings repeated 5 or more times in this range
+              {dir === "in" ? "Income" : "Outgoings"} repeated 5 or more times
+              in this range
             </p>
             {frequent.length === 0 ? (
               <p className={styles.emptySection}>
