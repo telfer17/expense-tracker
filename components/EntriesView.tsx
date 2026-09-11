@@ -351,7 +351,7 @@ export default function EntriesView({
         matched={searchQuery ? filtered.length : null}
       />
 
-      {filterCat && (
+      {filterCat && filterCat !== "none" && (
         <Link href={`/categories/${filterCat}`} className={styles.catLink}>
           {catName.get(filterCat)} ›
         </Link>

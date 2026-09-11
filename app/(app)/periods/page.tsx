@@ -6,13 +6,19 @@ import styles from "./periods.module.css";
 
 export default async function PeriodsPage() {
   const supabase = await createClient();
-  const [{ data: claims }, { data: periodRows }] = await Promise.all([
-    supabase.auth.getClaims(),
-    supabase.from("periods").select("id, start_date").order("start_date"),
-  ]);
+  const [{ data: claims }, { data: periodRows, error: periodsError }] =
+    await Promise.all([
+      supabase.auth.getClaims(),
+      supabase.from("periods").select("id, start_date").order("start_date"),
+    ]);
 
   const userId = claims?.claims?.sub;
   if (!userId) redirect("/login");
+
+  // Fail loudly — a failed query must not render as "no periods".
+  if (periodsError) {
+    throw new Error(`Couldn't load periods: ${periodsError.message}`);
+  }
 
   const idByStart = new Map(
     (periodRows ?? []).map((r) => [r.start_date, r.id])

@@ -184,10 +184,11 @@ export default function ImportView({
           ...new Set(fingerprints.filter((f): f is string => f !== null)),
         ];
         for (let i = 0; i < unique.length; i += 100) {
-          const { data } = await supabase
+          const { data, error } = await supabase
             .from("entries")
             .select("fingerprint")
             .in("fingerprint", unique.slice(i, i + 100));
+          if (error) throw error;
           for (const e of data ?? []) {
             if (e.fingerprint) existing.add(e.fingerprint);
           }
@@ -201,12 +202,13 @@ export default function ImportView({
         for (let i = 0; i < uniqueDates.length; i += 100) {
           const slice = uniqueDates.slice(i, i + 100);
           for (let from = 0; ; from += 1000) {
-            const { data } = await supabase
+            const { data, error } = await supabase
               .from("entries")
               .select("entry_date, amount, direction, note")
               .in("entry_date", slice)
               .order("id", { ascending: true })
               .range(from, from + 999);
+            if (error) throw error;
             for (const e of data ?? []) {
               const key = `${e.entry_date}|${Math.round(
                 Number(e.amount) * 100
@@ -223,14 +225,16 @@ export default function ImportView({
         const catById = new Map(categories.map((c) => [c.id, c]));
         const history: { note: string; category_id: string }[] = [];
         for (let from = 0; from < 2000; from += 1000) {
-          const { data } = await supabase
+          const { data, error } = await supabase
             .from("entries")
             .select("note, category_id")
             .not("category_id", "is", null)
             .not("note", "is", null)
             .order("entry_date", { ascending: false })
+            .order("created_at", { ascending: false })
             .order("id", { ascending: true })
             .range(from, from + 999);
+          if (error) throw error;
           history.push(...(data ?? []));
           if (!data || data.length < 1000) break;
         }
@@ -240,7 +244,12 @@ export default function ImportView({
           if (key && cat && !guessByKey.has(key)) guessByKey.set(key, cat);
         }
       } catch {
-        // Parsed rows are still worth showing without dupes/guesses.
+        // Parsed rows are still worth showing without dupes/guesses — but
+        // only in a consistent state: a failure partway through must not
+        // leave partial lookups flagging some rows and not others.
+        existing.clear();
+        nearByKey.clear();
+        guessByKey.clear();
       }
 
       setRows(
