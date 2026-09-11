@@ -1,7 +1,9 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { monthLabel } from "@/lib/month";
+import { fetchAllRows } from "@/lib/paged";
 import { buildPeriods, daysBetween, periodFor, resolveView } from "@/lib/periods";
+import type { Entry } from "@/lib/types";
 import { resolveRange } from "@/lib/range";
 import { likePattern } from "@/lib/search";
 import EntriesView from "@/components/EntriesView";
@@ -66,34 +68,36 @@ export default async function EntriesPage({
     : [];
   const view = resolveView(periods, rawPeriod, rawMonth);
 
-  let query = supabase
-    .from("entries")
-    .select(
-      "id, amount, direction, category_id, entry_date, note, is_recurring, import_batch"
-    )
-    .order("entry_date", { ascending: false })
-    .order("created_at", { ascending: false });
-  if (rangeView) {
-    if (rangeView.from) query = query.gte("entry_date", rangeView.from);
-    if (rangeView.to) query = query.lte("entry_date", rangeView.to);
-  } else {
-    query = query.gte("entry_date", view.start);
-    if (view.end) query = query.lte("entry_date", view.end);
-  }
-  if (q) query = query.ilike("note", likePattern(q));
-  const { data: entries, error: entriesError } = await query;
-
-  // Fail loudly — a silently empty screen hides real problems (e.g. an
-  // unapplied migration).
-  if (entriesError) {
-    throw new Error(`Couldn't load entries: ${entriesError.message}`);
-  }
+  // Paged: an "All time" range easily exceeds PostgREST's 1,000-row cap,
+  // which would silently truncate both the list and the In/Out/Net totals
+  // computed from it. Fails loudly — a silently empty screen hides real
+  // problems (e.g. an unapplied migration).
+  const entries = await fetchAllRows<Entry>("entries", (from, to) => {
+    let query = supabase
+      .from("entries")
+      .select(
+        "id, amount, direction, category_id, entry_date, note, is_recurring, import_batch"
+      )
+      .order("entry_date", { ascending: false })
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: true })
+      .range(from, to);
+    if (rangeView) {
+      if (rangeView.from) query = query.gte("entry_date", rangeView.from);
+      if (rangeView.to) query = query.lte("entry_date", rangeView.to);
+    } else {
+      query = query.gte("entry_date", view.start);
+      if (view.end) query = query.lte("entry_date", view.end);
+    }
+    if (q) query = query.ilike("note", likePattern(q));
+    return query;
+  });
 
   // If this period is empty but entries exist elsewhere, point at the
   // period holding the nearest ones so the screen is never a dead end.
   let emptyHint: { label: string; href: string } | null = null;
   const qSuffix = q ? `&q=${encodeURIComponent(q)}` : "";
-  if (!rangeView && (entries ?? []).length === 0 && earliestRows?.[0]) {
+  if (!rangeView && entries.length === 0 && earliestRows?.[0]) {
     // The probes carry the note filter too, so with a search active the
     // hint points at the nearest *matching* entries.
     let beforeQuery = supabase
@@ -146,7 +150,9 @@ export default async function EntriesPage({
     }
   }
 
-  const initialCat = (categories ?? []).some((c) => c.id === cat) ? cat! : "";
+  // "none" is the uncategorised filter; anything else must be a real id.
+  const initialCat =
+    cat === "none" || (categories ?? []).some((c) => c.id === cat) ? cat! : "";
 
   // Running balance: only meaningful over the unfiltered ledger, so it's
   // computed for the plain month/period view and never in range or search
@@ -205,7 +211,7 @@ export default async function EntriesPage({
       mode={salaryMode ? "salary" : "month"}
       hasPeriods={hasPeriods}
       emptyHint={emptyHint}
-      entries={entries ?? []}
+      entries={entries}
       categories={categories ?? []}
       userId={userId}
       initialCat={initialCat}

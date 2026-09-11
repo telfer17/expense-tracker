@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { ukToday } from "@/lib/month";
+import { fetchAllRows } from "@/lib/paged";
 import { buildPeriods, daysBetween, resolveView, viewHref } from "@/lib/periods";
 import EntryForm, { type QuickAddItem } from "@/components/EntryForm";
 
@@ -43,15 +44,23 @@ export default async function AddPage() {
     : [];
   const view = resolveView(periods, undefined, undefined);
 
-  let query = supabase
-    .from("entries")
-    .select("amount, direction")
-    .gte("entry_date", view.start);
-  if (view.end) query = query.lte("entry_date", view.end);
-  const { data: periodEntries } = await query;
+  // Paged so a >1,000-entry period doesn't silently understate the totals.
+  const periodEntries = await fetchAllRows<{
+    amount: number;
+    direction: string;
+  }>("period totals", (from, to) => {
+    let query = supabase
+      .from("entries")
+      .select("amount, direction")
+      .gte("entry_date", view.start)
+      .order("id")
+      .range(from, to);
+    if (view.end) query = query.lte("entry_date", view.end);
+    return query;
+  });
 
   const totals = { in: 0, out: 0 };
-  for (const e of periodEntries ?? []) {
+  for (const e of periodEntries) {
     if (e.direction === "in") totals.in += Number(e.amount);
     else totals.out += Number(e.amount);
   }

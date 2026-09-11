@@ -172,20 +172,28 @@ export default async function InsightsPage({
     .filter((g) => g.count >= 5)
     .sort((a, b) => b.total - a.total);
 
-  // Category drilldowns carry the same window along.
-  const catHref = (id: string): string => {
+  // Drilldowns carry the same window along: category rows to the category
+  // page, the uncategorised row to /entries filtered to no category.
+  const windowParams = (): URLSearchParams => {
+    const sp = new URLSearchParams();
     if (!rangeView) {
-      return view.end
-        ? `/categories/${id}?range=custom&from=${view.start}&to=${view.end}`
-        : `/categories/${id}?range=custom&from=${view.start}`;
-    }
-    if (rangeView.preset === "custom") {
-      const sp = new URLSearchParams({ range: "custom" });
+      sp.set("range", "custom");
+      sp.set("from", view.start);
+      if (view.end) sp.set("to", view.end);
+    } else if (rangeView.preset === "custom") {
+      sp.set("range", "custom");
       if (rangeView.from) sp.set("from", rangeView.from);
       if (rangeView.to) sp.set("to", rangeView.to);
-      return `/categories/${id}?${sp}`;
+    } else {
+      sp.set("range", rangeView.preset);
     }
-    return `/categories/${id}?range=${rangeView.preset}`;
+    return sp;
+  };
+  const catHref = (id: string): string => `/categories/${id}?${windowParams()}`;
+  const uncatHref = (): string => {
+    const sp = windowParams();
+    sp.set("cat", "none");
+    return `/entries?${sp}`;
   };
 
   const pctFmt = (pct: number): string =>
@@ -229,13 +237,12 @@ export default async function InsightsPage({
                 );
                 return (
                   <li key={c.id ?? "uncategorised"}>
-                    {c.id ? (
-                      <Link href={catHref(c.id)} className={styles.catRow}>
-                        {inner}
-                      </Link>
-                    ) : (
-                      <div className={styles.catRow}>{inner}</div>
-                    )}
+                    <Link
+                      href={c.id ? catHref(c.id) : uncatHref()}
+                      className={styles.catRow}
+                    >
+                      {inner}
+                    </Link>
                   </li>
                 );
               })}
