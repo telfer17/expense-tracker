@@ -67,12 +67,15 @@ export default function DuplicatesView({
 
     setDeletingId(entry.id);
     setError(null);
-    const { error: deleteError } = await createClient()
+    // Select the deleted row back — RLS can turn a delete into a silent
+    // no-op, and local state must only drop the entry if it really went.
+    const { data: deleted, error: deleteError } = await createClient()
       .from("entries")
       .delete()
-      .eq("id", entry.id);
+      .eq("id", entry.id)
+      .select("id");
     setDeletingId(null);
-    if (deleteError) {
+    if (deleteError || (deleted ?? []).length !== 1) {
       setError("Couldn't delete the entry. Try again.");
       return;
     }
