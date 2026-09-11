@@ -555,73 +555,85 @@ export default function ImportView({
                       aria-expanded={expanded}
                       onClick={() => setExpandedId(expanded ? null : r.id)}
                     >
-                      <span className={styles.sumDate}>
-                        {shortDate(r.date)}
-                      </span>
-                      <span className={styles.sumDesc}>
-                        {r.description.trim() || (
-                          <em className={styles.sumDescEmpty}>
-                            No description
-                          </em>
-                        )}
-                      </span>
-                      {r.duplicate && (
-                        <span className={styles.dupBadge}>
-                          Already recorded
+                      <span className={styles.sumMain}>
+                        <span className={styles.sumDate}>
+                          {shortDate(r.date)}
                         </span>
-                      )}
-                      {r.nearDuplicate !== null && (
+                        <span className={styles.sumDesc}>
+                          {r.description.trim() || (
+                            <em className={styles.sumDescEmpty}>
+                              No description
+                            </em>
+                          )}
+                        </span>
                         <span
-                          className={styles.nearDupBadge}
+                          className={
+                            r.direction === "in"
+                              ? styles.sumAmountIn
+                              : styles.sumAmount
+                          }
+                        >
+                          {r.amount ? (
+                            <>
+                              <span className={styles.sign}>
+                                {r.direction === "in" ? "+" : "−"}
+                              </span>
+                              {r.amount}
+                            </>
+                          ) : (
+                            "—"
+                          )}
+                        </span>
+                      </span>
+                      <span className={styles.sumMeta}>
+                        {r.duplicate && (
+                          <span className={styles.dupBadge}>Duplicate</span>
+                        )}
+                        {r.nearDuplicate !== null && (
+                          <span className={styles.nearDupBadge}>
+                            Possible duplicate
+                          </span>
+                        )}
+                        <span
+                          className={
+                            catName
+                              ? r.guessed
+                                ? styles.sumCatGuessed
+                                : styles.sumCat
+                              : styles.sumNoCat
+                          }
                           title={
-                            r.nearDuplicate
-                              ? `Existing entry: ${r.nearDuplicate}`
+                            r.guessed
+                              ? "Guessed from a similar past entry"
                               : undefined
                           }
                         >
-                          Possible duplicate — you have £{r.amount} on this
-                          date{r.nearDuplicate && <> — “{r.nearDuplicate}”</>}
+                          {catName || "No category"}
                         </span>
-                      )}
-                      <span
-                        className={
-                          catName
-                            ? r.guessed
-                              ? styles.sumCatGuessed
-                              : styles.sumCat
-                            : styles.sumNoCat
-                        }
-                        title={
-                          r.guessed
-                            ? "Guessed from a similar past entry"
-                            : undefined
-                        }
-                      >
-                        {catName || "No category"}
-                      </span>
-                      <span
-                        className={
-                          r.direction === "in"
-                            ? styles.sumAmountIn
-                            : styles.sumAmount
-                        }
-                      >
-                        {r.amount ? (
-                          <>
-                            <span className={styles.sign}>
-                              {r.direction === "in" ? "+" : "−"}
-                            </span>
-                            {r.amount}
-                          </>
-                        ) : (
-                          "—"
-                        )}
                       </span>
                     </button>
                   </div>
 
                   {expanded && (
                     <div className={styles.expanded}>
+                      {r.duplicate && (
+                        <p className={styles.dupDetail}>
+                          Duplicate — this exact statement row is already
+                          recorded from an earlier import.
+                        </p>
+                      )}
+                      {r.nearDuplicate !== null && (
+                        <p className={styles.nearDupDetail}>
+                          Possible duplicate — you already have £{r.amount} on{" "}
+                          {shortDate(r.date)}
+                          {r.nearDuplicate ? (
+                            <> — “{r.nearDuplicate}”</>
+                          ) : (
+                            " with no note"
+                          )}
+                          .
+                        </p>
+                      )}
                       <input
                         className={formStyles.input}
                         type="date"
