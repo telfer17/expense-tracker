@@ -6,37 +6,63 @@ import styles from "./periods.module.css";
 
 export default async function PeriodsPage() {
   const supabase = await createClient();
-  const [{ data: claims }, { data: periodRows }, { data: entryRows }] =
+  const [{ data: claims }, { data: periodRows, error: periodsError }] =
     await Promise.all([
       supabase.auth.getClaims(),
       supabase.from("periods").select("id, start_date").order("start_date"),
-      supabase.from("entries").select("entry_date"),
     ]);
 
   const userId = claims?.claims?.sub;
   if (!userId) redirect("/login");
 
+  // Fail loudly — a failed query must not render as "no periods".
+  if (periodsError) {
+    throw new Error(`Couldn't load periods: ${periodsError.message}`);
+  }
+
   const idByStart = new Map(
     (periodRows ?? []).map((r) => [r.start_date, r.id])
   );
-  const dates = (entryRows ?? []).map((r) => r.entry_date);
 
   // Derived ends: day before the next start; newest runs to the present.
   const built = buildPeriods([...idByStart.keys()], null);
-  const rows = built.map((p) => ({
+  const firstStart =
+    built.length > 0 ? built[built.length - 1].start : null;
+
+  // Counted in the database — fetching rows to count them client-side
+  // silently truncates at PostgREST's 1,000-row cap.
+  const countQueries = built.map((p) => {
+    let q = supabase
+      .from("entries")
+      .select("id", { count: "exact", head: true })
+      .gte("entry_date", p.start);
+    if (!p.open) q = q.lte("entry_date", p.end);
+    return q;
+  });
+  const results = await Promise.all([
+    ...countQueries,
+    ...(firstStart
+      ? [
+          supabase
+            .from("entries")
+            .select("id", { count: "exact", head: true })
+            .lt("entry_date", firstStart),
+        ]
+      : []),
+  ]);
+  for (const r of results) {
+    if (r.error) {
+      throw new Error(`Couldn't count entries: ${r.error.message}`);
+    }
+  }
+
+  const rows = built.map((p, i) => ({
     id: idByStart.get(p.start)!,
     start: p.start,
     range: formatPeriodRange(p),
-    count: dates.filter(
-      (d) => d >= p.start && (p.open || d <= p.end)
-    ).length,
+    count: results[i].count ?? 0,
   }));
-
-  const firstStart =
-    built.length > 0 ? built[built.length - 1].start : null;
-  const beforeCount = firstStart
-    ? dates.filter((d) => d < firstStart).length
-    : 0;
+  const beforeCount = firstStart ? results[built.length].count ?? 0 : 0;
   const implicit =
     firstStart && beforeCount > 0
       ? { label: `Before ${formatDate(firstStart)}`, count: beforeCount }

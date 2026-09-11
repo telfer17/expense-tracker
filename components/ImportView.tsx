@@ -184,47 +184,72 @@ export default function ImportView({
           ...new Set(fingerprints.filter((f): f is string => f !== null)),
         ];
         for (let i = 0; i < unique.length; i += 100) {
-          const { data } = await supabase
+          const { data, error } = await supabase
             .from("entries")
             .select("fingerprint")
             .in("fingerprint", unique.slice(i, i + 100));
+          if (error) throw error;
           for (const e of data ?? []) {
             if (e.fingerprint) existing.add(e.fingerprint);
           }
         }
 
         // Same date + amount + direction as an existing entry, keyed for
-        // the looser duplicate check below. First match's note wins.
+        // the looser duplicate check below. First match's note wins. Paged
+        // within each chunk: 100 busy dates can hold well over PostgREST's
+        // 1,000-row cap, which would silently drop matches.
         const uniqueDates = [...new Set(transactions.map((t) => t.date))];
         for (let i = 0; i < uniqueDates.length; i += 100) {
-          const { data } = await supabase
-            .from("entries")
-            .select("entry_date, amount, direction, note")
-            .in("entry_date", uniqueDates.slice(i, i + 100));
-          for (const e of data ?? []) {
-            const key = `${e.entry_date}|${Math.round(
-              Number(e.amount) * 100
-            )}|${e.direction}`;
-            if (!nearByKey.has(key)) nearByKey.set(key, e.note ?? "");
+          const slice = uniqueDates.slice(i, i + 100);
+          for (let from = 0; ; from += 1000) {
+            const { data, error } = await supabase
+              .from("entries")
+              .select("entry_date, amount, direction, note")
+              .in("entry_date", slice)
+              .order("id", { ascending: true })
+              .range(from, from + 999);
+            if (error) throw error;
+            for (const e of data ?? []) {
+              const key = `${e.entry_date}|${Math.round(
+                Number(e.amount) * 100
+              )}|${e.direction}`;
+              if (!nearByKey.has(key)) nearByKey.set(key, e.note ?? "");
+            }
+            if (!data || data.length < 1000) break;
           }
         }
 
-        // Most recent entry per normalised note wins the guess.
+        // Most recent entry per normalised note wins the guess. Fetched in
+        // pages: a plain .limit(2000) is silently capped to 1,000 rows by
+        // PostgREST, halving the history the guesses draw on.
         const catById = new Map(categories.map((c) => [c.id, c]));
-        const { data: history } = await supabase
-          .from("entries")
-          .select("note, category_id")
-          .not("category_id", "is", null)
-          .not("note", "is", null)
-          .order("entry_date", { ascending: false })
-          .limit(2000);
-        for (const h of history ?? []) {
+        const history: { note: string; category_id: string }[] = [];
+        for (let from = 0; from < 2000; from += 1000) {
+          const { data, error } = await supabase
+            .from("entries")
+            .select("note, category_id")
+            .not("category_id", "is", null)
+            .not("note", "is", null)
+            .order("entry_date", { ascending: false })
+            .order("created_at", { ascending: false })
+            .order("id", { ascending: true })
+            .range(from, from + 999);
+          if (error) throw error;
+          history.push(...(data ?? []));
+          if (!data || data.length < 1000) break;
+        }
+        for (const h of history) {
           const key = normalizeForMatch(h.note);
           const cat = catById.get(h.category_id);
           if (key && cat && !guessByKey.has(key)) guessByKey.set(key, cat);
         }
       } catch {
-        // Parsed rows are still worth showing without dupes/guesses.
+        // Parsed rows are still worth showing without dupes/guesses — but
+        // only in a consistent state: a failure partway through must not
+        // leave partial lookups flagging some rows and not others.
+        existing.clear();
+        nearByKey.clear();
+        guessByKey.clear();
       }
 
       setRows(

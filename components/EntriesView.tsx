@@ -77,7 +77,10 @@ export default function EntriesView({
   // Category and recurring narrow the totals; the direction filter does not —
   // In/Out/Net always show both sides so they work as navigation.
   const totalsBase = entries.filter((e) => {
-    if (filterCat && e.category_id !== filterCat) return false;
+    // "none" = entries with no category (import can leave category_id null).
+    if (filterCat === "none") {
+      if (e.category_id) return false;
+    } else if (filterCat && e.category_id !== filterCat) return false;
     if (filterRec === "recurring" && !e.is_recurring) return false;
     if (filterRec === "nonrecurring" && e.is_recurring) return false;
     return true;
@@ -322,6 +325,7 @@ export default function EntriesView({
           aria-label="Filter by category"
         >
           <option value="">All categories</option>
+          <option value="none">Uncategorised</option>
           {categories.map((c) => (
             <option key={c.id} value={c.id}>
               {c.name}
@@ -347,7 +351,7 @@ export default function EntriesView({
         matched={searchQuery ? filtered.length : null}
       />
 
-      {filterCat && (
+      {filterCat && filterCat !== "none" && (
         <Link href={`/categories/${filterCat}`} className={styles.catLink}>
           {catName.get(filterCat)} ›
         </Link>

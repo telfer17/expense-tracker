@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { monthLabel, monthRange } from "@/lib/month";
+import { fetchAllRows } from "@/lib/paged";
 import { buildPeriods, periodFor } from "@/lib/periods";
 import { resolveRange, type RangeView } from "@/lib/range";
 import { likePattern } from "@/lib/search";
@@ -72,25 +73,38 @@ export default async function CategoryPage({
   const groupedHref = `/categories/${id}?${toggleParams}`;
 
   const supabase = await createClient();
-  let entriesQuery = supabase
-    .from("entries")
-    .select("id, note, amount, direction, entry_date")
-    .eq("category_id", id)
-    .order("entry_date", { ascending: false });
-  if (rv.from) entriesQuery = entriesQuery.gte("entry_date", rv.from);
-  if (rv.to) entriesQuery = entriesQuery.lte("entry_date", rv.to);
-  if (q) entriesQuery = entriesQuery.ilike("note", likePattern(q));
+  // Paged: the default view is all-time, and a big category's totals and
+  // groups would otherwise silently truncate at PostgREST's 1,000-row cap.
+  const entriesPromise = fetchAllRows<{
+    id: string;
+    note: string | null;
+    amount: number;
+    direction: "in" | "out";
+    entry_date: string;
+  }>("entries", (from, to) => {
+    let entriesQuery = supabase
+      .from("entries")
+      .select("id, note, amount, direction, entry_date")
+      .eq("category_id", id)
+      .order("entry_date", { ascending: false })
+      .order("id", { ascending: true })
+      .range(from, to);
+    if (rv.from) entriesQuery = entriesQuery.gte("entry_date", rv.from);
+    if (rv.to) entriesQuery = entriesQuery.lte("entry_date", rv.to);
+    if (q) entriesQuery = entriesQuery.ilike("note", likePattern(q));
+    return entriesQuery;
+  });
 
   const [
     { data: category },
     { data: settingsRow },
-    { data: entries },
+    entries,
     { data: markerRows },
     { data: earliestRows },
   ] = await Promise.all([
     supabase.from("categories").select("id, name").eq("id", id).maybeSingle(),
     supabase.from("user_settings").select("period_mode").maybeSingle(),
-    entriesQuery,
+    entriesPromise,
     supabase.from("periods").select("start_date").order("start_date"),
     supabase
       .from("entries")
