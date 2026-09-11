@@ -29,6 +29,11 @@ type ReviewRow = {
   // matches. Null when the raw description is empty (never matches).
   fingerprint: string | null;
   duplicate: boolean;
+  // Looser duplicate signal: an existing entry with the same date, amount
+  // and direction but no fingerprint match (manual entries hash their note,
+  // so their fingerprints never match imported rows). Holds the existing
+  // entry's note ("" when it has none); null when there's no such entry.
+  nearDuplicate: string | null;
   guessed: boolean;
 };
 
@@ -161,6 +166,7 @@ export default function ImportView({
       // migration hasn't run yet) — the review screen still works.
       let fingerprints: (string | null)[] = transactions.map(() => null);
       const existing = new Set<string>();
+      const nearByKey = new Map<string, string>();
       const guessByKey = new Map<string, Category>();
       try {
         const supabase = createClient();
@@ -187,6 +193,22 @@ export default function ImportView({
           }
         }
 
+        // Same date + amount + direction as an existing entry, keyed for
+        // the looser duplicate check below. First match's note wins.
+        const uniqueDates = [...new Set(transactions.map((t) => t.date))];
+        for (let i = 0; i < uniqueDates.length; i += 100) {
+          const { data } = await supabase
+            .from("entries")
+            .select("entry_date, amount, direction, note")
+            .in("entry_date", uniqueDates.slice(i, i + 100));
+          for (const e of data ?? []) {
+            const key = `${e.entry_date}|${Math.round(
+              Number(e.amount) * 100
+            )}|${e.direction}`;
+            if (!nearByKey.has(key)) nearByKey.set(key, e.note ?? "");
+          }
+        }
+
         // Most recent entry per normalised note wins the guess.
         const catById = new Map(categories.map((c) => [c.id, c]));
         const { data: history } = await supabase
@@ -209,15 +231,25 @@ export default function ImportView({
         transactions.map((t, i) => {
           const fingerprint = fingerprints[i];
           const duplicate = fingerprint !== null && existing.has(fingerprint);
+          const nearDuplicate =
+            !duplicate && Number.isFinite(t.amount) && t.amount > 0
+              ? nearByKey.get(
+                  `${t.date}|${Math.round(t.amount * 100)}|${t.direction}`
+                ) ?? null
+              : null;
+          // Fall back to the raw description only here, at parse time. From
+          // this point the field belongs to the user — an edit that empties
+          // it stays empty, in the collapsed row and in the imported note.
+          const description = t.description.trim() || t.rawDescription;
           const guess = guessCategory(
-            normalizeForMatch(t.description),
+            normalizeForMatch(description),
             guessByKey
           );
           return {
             id: crypto.randomUUID(),
-            include: !duplicate,
+            include: !duplicate && nearDuplicate === null,
             date: t.date,
-            description: t.description,
+            description,
             rawDescription: t.rawDescription,
             // Blank out bad amounts so importRows' validation flags them.
             amount:
@@ -229,6 +261,7 @@ export default function ImportView({
             selectedCat: guess,
             fingerprint,
             duplicate,
+            nearDuplicate,
             guessed: guess !== null,
           };
         })
@@ -325,7 +358,7 @@ export default function ImportView({
           direction: r.direction,
           category_id: name ? idByName.get(name.toLowerCase()) ?? null : null,
           entry_date: r.date,
-          note: r.description.trim() || r.rawDescription,
+          note: r.description.trim() || null,
           is_recurring: false,
           import_batch: batchId,
           fingerprint: r.fingerprint,
@@ -378,7 +411,8 @@ export default function ImportView({
   const includedCount = rows?.filter((r) => r.include).length ?? 0;
   const needCategoryCount =
     rows?.filter((r) => r.include && !rowCategoryName(r)).length ?? 0;
-  const duplicateCount = rows?.filter((r) => r.duplicate).length ?? 0;
+  const duplicateCount =
+    rows?.filter((r) => r.duplicate || r.nearDuplicate !== null).length ?? 0;
   const categorisedCount =
     rows?.filter((r) => rowCategoryName(r)).length ?? 0;
   const pageCount = rows ? Math.max(1, Math.ceil(rows.length / PAGE_SIZE)) : 1;
@@ -525,11 +559,28 @@ export default function ImportView({
                         {shortDate(r.date)}
                       </span>
                       <span className={styles.sumDesc}>
-                        {r.description.trim() || r.rawDescription}
+                        {r.description.trim() || (
+                          <em className={styles.sumDescEmpty}>
+                            No description
+                          </em>
+                        )}
                       </span>
                       {r.duplicate && (
                         <span className={styles.dupBadge}>
                           Already recorded
+                        </span>
+                      )}
+                      {r.nearDuplicate !== null && (
+                        <span
+                          className={styles.nearDupBadge}
+                          title={
+                            r.nearDuplicate
+                              ? `Existing entry: ${r.nearDuplicate}`
+                              : undefined
+                          }
+                        >
+                          Possible duplicate — you have £{r.amount} on this
+                          date{r.nearDuplicate && <> — “{r.nearDuplicate}”</>}
                         </span>
                       )}
                       <span
