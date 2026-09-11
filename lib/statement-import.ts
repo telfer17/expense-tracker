@@ -50,13 +50,16 @@ export const DESCRIPTION_CLEANING = {
   // 4b. Short all-caps bank marker tokens (card/point-of-sale/ATM markers,
   //     giro, cheque, transfer), stripped wherever they appear as
   //     standalone words.
-  noiseTokens: ["CD", "CDS", "POS", "ATM", "BGC", "CHQ", "TFR"],
+  noiseTokens: ["CD", "CDS", "POS", "ATM", "BGC", "CHQ", "TFR", "SP"],
   // 4c. Transfer boilerplate phrases, stripped wherever they appear
   //     (before title casing). Pairs with OWN_NAME above.
   boilerplatePhrases: ["SENT FROM", "RECEIVED FROM"],
   // 5. Trailing 2-letter country codes, optionally preceded by a UK
-  //    town/city. Deliberately short and obvious, not exhaustive.
+  //    town/city. Deliberately short and obvious, not exhaustive. A
+  //    trailing currency code ("… WALNUT CREEK US USD") is stripped first
+  //    so the country code behind it is still recognised as trailing.
   countryCodes: ["GB", "US", "IE"],
+  currencyCodes: ["GBP", "USD", "EUR"],
   towns: [
     "LONDON",
     "MANCHESTER",
@@ -96,6 +99,10 @@ const prefixRe = new RegExp(
 );
 const townCountryRe = new RegExp(
   `(?:\\b(?:${C.towns.join("|")})\\s+)?\\b(?:${C.countryCodes.join("|")})\\s*$`,
+  "i"
+);
+const currencyCodeRe = new RegExp(
+  `\\s*\\b(?:${C.currencyCodes.join("|")})\\s*$`,
   "i"
 );
 const companySuffixRe = new RegExp(
@@ -139,12 +146,16 @@ export function cleanDescription(raw: string): string {
   for (const re of C.referencePatterns) s = s.replace(re, " ");
 
   // 4b/4c. Bank marker tokens, transfer boilerplate, and the account
-  //        holder's own name, wherever they appear.
+  //        holder's own name, wherever they appear. Card processors also
+  //        glue "*" onto merchant names ("CODERABBIT* …").
   s = s.replace(noiseTokenRe, " ");
   s = s.replace(boilerplateRe, " ");
   s = s.replace(ownNameRe, " ");
+  s = s.replace(/\*/g, " ");
 
-  // 5. Trailing country code, plus a recognised town before it.
+  // 5. Trailing currency code, then country code, plus a recognised town
+  //    before it.
+  s = s.trim().replace(currencyCodeRe, "");
   s = s.trim().replace(townCountryRe, "");
 
   // 6. Trailing company suffixes.
@@ -198,13 +209,19 @@ function isArtefact(description: string): boolean {
 }
 
 // Strip currency symbols, commas, whitespace, and anything else that isn't
-// part of the number; returns a positive amount or null.
-function parseAmount(cell: string): number | null {
+// part of the number; returns a signed amount, or null for zero or
+// unparseable cells.
+function parseSignedAmount(cell: string): number | null {
   const cleaned = cell.replace(/[^0-9.-]/g, "");
   if (!cleaned || !/\d/.test(cleaned)) return null;
   const n = Number(cleaned);
   if (!Number.isFinite(n) || n === 0) return null;
-  return Math.round(Math.abs(n) * 100) / 100;
+  return Math.round(n * 100) / 100;
+}
+
+function parseAmount(cell: string): number | null {
+  const n = parseSignedAmount(cell);
+  return n === null ? null : Math.abs(n);
 }
 
 export function parseCsv(
@@ -222,34 +239,47 @@ export function parseCsv(
     return { error: "Couldn't read that file as CSV." };
   }
 
-  // Find the header row (tolerating junk lines above it) and map columns.
+  // Find the header row (tolerating junk lines above it, e.g. a statement
+  // title) and map columns. Two shapes are accepted: separate paid-in /
+  // withdrawn columns, or a single signed amount column where positive
+  // means "in" and negative means "out". Any Currency column is ignored.
   let headerIndex = -1;
-  let cols = { date: -1, description: -1, paidIn: -1, withdrawn: -1 };
-  for (let i = 0; i < Math.min(records.length, 10); i++) {
+  let cols:
+    | { kind: "split"; date: number; description: number; paidIn: number; withdrawn: number }
+    | { kind: "signed"; date: number; description: number; amount: number }
+    | null = null;
+  for (let i = 0; i < Math.min(records.length, 10) && !cols; i++) {
     const cells = records[i].map((c) => c.toLowerCase());
-    const found = {
-      date: cells.findIndex((c) => c.includes("date")),
-      description: cells.findIndex((c) => c.includes("description")),
-      paidIn: cells.findIndex(
-        (c) => c.includes("paid in") || c.includes("credit")
-      ),
-      withdrawn: cells.findIndex(
-        (c) => c.includes("withdrawn") || c.includes("debit")
-      ),
-    };
-    if (
-      Object.values(found).every((idx) => idx !== -1) &&
-      found.paidIn !== found.withdrawn
-    ) {
-      headerIndex = i;
-      cols = found;
-      break;
+    const date = cells.findIndex((c) => c.includes("date"));
+    const description = cells.findIndex((c) => c.includes("description"));
+    if (date === -1 || description === -1) continue;
+
+    const paidIn = cells.findIndex(
+      (c) => c.includes("paid in") || c.includes("credit")
+    );
+    const withdrawn = cells.findIndex(
+      (c) => c.includes("withdrawn") || c.includes("debit")
+    );
+    // A header like "Value Date" would match the amount patterns too, so
+    // the amount column must be one not already claimed by date/description.
+    const amount = cells.findIndex(
+      (c, idx) =>
+        (c.includes("amount") || c.includes("value")) &&
+        idx !== date &&
+        idx !== description
+    );
+
+    if (paidIn !== -1 && withdrawn !== -1 && paidIn !== withdrawn) {
+      cols = { kind: "split", date, description, paidIn, withdrawn };
+    } else if (amount !== -1) {
+      cols = { kind: "signed", date, description, amount };
     }
+    if (cols) headerIndex = i;
   }
-  if (headerIndex === -1) {
+  if (!cols) {
     return {
       error:
-        'Couldn\'t find the expected columns. The CSV needs a header row with "Date", "Description", a paid-in column ("Paid In" or "Credit") and a withdrawn column ("Withdrawn" or "Debit").',
+        'Couldn\'t find the expected columns. The CSV needs a header row with "Date", "Description", and either a paid-in column ("Paid In" or "Credit") plus a withdrawn column ("Withdrawn" or "Debit"), or a single signed amount column ("Amount" or "Value").',
     };
   }
 
@@ -257,19 +287,30 @@ export function parseCsv(
   for (const row of records.slice(headerIndex + 1)) {
     const date = normalizeDate(row[cols.date] ?? "");
     const description = (row[cols.description] ?? "").trim();
-    const paidIn = parseAmount(row[cols.paidIn] ?? "");
-    const withdrawn = parseAmount(row[cols.withdrawn] ?? "");
-
     if (!date || !description || isArtefact(description)) continue;
-    // Exactly one of the two amount columns must have a value.
-    if ((paidIn === null) === (withdrawn === null)) continue;
+
+    let amount: number;
+    let direction: Direction;
+    if (cols.kind === "split") {
+      const paidIn = parseAmount(row[cols.paidIn] ?? "");
+      const withdrawn = parseAmount(row[cols.withdrawn] ?? "");
+      // Exactly one of the two amount columns must have a value.
+      if ((paidIn === null) === (withdrawn === null)) continue;
+      amount = (paidIn ?? withdrawn)!;
+      direction = paidIn !== null ? "in" : "out";
+    } else {
+      const signed = parseSignedAmount(row[cols.amount] ?? "");
+      if (signed === null) continue;
+      amount = Math.abs(signed);
+      direction = signed > 0 ? "in" : "out";
+    }
 
     transactions.push({
       date,
       description: cleanDescription(description),
       rawDescription: description,
-      amount: (paidIn ?? withdrawn)!,
-      direction: paidIn !== null ? "in" : "out",
+      amount,
+      direction,
     });
   }
   return { transactions };
