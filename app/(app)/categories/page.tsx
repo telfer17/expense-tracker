@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import CategoriesManager from "@/components/CategoriesManager";
@@ -50,6 +51,9 @@ export default async function CategoriesPage() {
       <a href="/api/export" className={styles.export} download>
         Download all entries (CSV)
       </a>
+      <Link href="/duplicates" className={styles.export}>
+        Find duplicate entries
+      </Link>
       <form action={logout}>
         <button type="submit" className={styles.logout}>
           Log out

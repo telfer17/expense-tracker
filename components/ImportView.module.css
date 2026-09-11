@@ -175,6 +175,10 @@
   white-space: nowrap;
 }
 
+.sumDescEmpty {
+  color: var(--muted);
+}
+
 .sumCat,
 .sumNoCat {
   flex-shrink: 1;
@@ -210,6 +214,23 @@
   border: 1px solid var(--danger);
   border-radius: 999px;
   color: var(--danger);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+/* Looser match (same date/amount/direction, different description): amber
+   and dashed to read as "check me", not "skip me". Truncates so a long
+   existing note can't crowd out the amount. */
+.nearDupBadge {
+  flex-shrink: 1;
+  min-width: 0;
+  max-width: 16rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 0.125rem 0.5rem;
+  border: 1px dashed var(--warn);
+  border-radius: 999px;
+  color: var(--warn);
   font-size: 0.75rem;
   white-space: nowrap;
 }
