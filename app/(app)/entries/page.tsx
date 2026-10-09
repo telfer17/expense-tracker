@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { monthLabel } from "@/lib/month";
 import { fetchAllRows } from "@/lib/paged";
 import { buildPeriods, daysBetween, periodFor, resolveView } from "@/lib/periods";
-import type { Entry } from "@/lib/types";
+import { categoryIdsOf, type Entry, type EntryCategoryRow } from "@/lib/types";
 import { resolveRange } from "@/lib/range";
 import { likePattern } from "@/lib/search";
 import EntriesView from "@/components/EntriesView";
@@ -72,11 +72,14 @@ export default async function EntriesPage({
   // which would silently truncate both the list and the In/Out/Net totals
   // computed from it. Fails loudly — a silently empty screen hides real
   // problems (e.g. an unapplied migration).
-  const entries = await fetchAllRows<Entry>("entries", (from, to) => {
+  type EntryRow = Omit<Entry, "category_ids"> & {
+    entry_categories: EntryCategoryRow[] | EntryCategoryRow | null;
+  };
+  const entryRows = await fetchAllRows<EntryRow>("entries", (from, to) => {
     let query = supabase
       .from("entries")
       .select(
-        "id, amount, direction, category_id, entry_date, note, is_recurring, import_batch"
+        "id, amount, direction, entry_date, note, is_recurring, import_batch, entry_categories(category_id)"
       )
       .order("entry_date", { ascending: false })
       .order("created_at", { ascending: false })
@@ -92,6 +95,10 @@ export default async function EntriesPage({
     if (q) query = query.ilike("note", likePattern(q));
     return query;
   });
+  const entries: Entry[] = entryRows.map(({ entry_categories, ...e }) => ({
+    ...e,
+    category_ids: categoryIdsOf(entry_categories),
+  }));
 
   // If this period is empty but entries exist elsewhere, point at the
   // period holding the nearest ones so the screen is never a dead end.

@@ -2,8 +2,14 @@
 
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { ilikeLiteral, withTypedCategory } from "@/lib/categories";
 import { computeFingerprint } from "@/lib/fingerprint";
-import type { Category, Direction } from "@/lib/types";
+import {
+  categoryIdsOf,
+  type Category,
+  type CategoryPick,
+  type Direction,
+} from "@/lib/types";
 import CategoryPicker from "./CategoryPicker";
 import formStyles from "./EntryForm.module.css";
 import styles from "./ImportView.module.css";
@@ -21,8 +27,9 @@ type ReviewRow = {
   rawDescription: string;
   amount: string;
   direction: Direction;
+  // Picked chips plus the type-ahead text; see rowCategories.
   catQuery: string;
-  selectedCat: Category | null;
+  selectedCats: CategoryPick[];
   // Computed at parse time from the ORIGINAL date/amount/raw description,
   // and stored as-is on import even if the row is edited — it identifies
   // the source statement row, so a re-import of the same statement still
@@ -37,9 +44,10 @@ type ReviewRow = {
   guessed: boolean;
 };
 
-// Mirrors how importRows resolves the category on save.
-function rowCategoryName(r: ReviewRow): string {
-  return r.selectedCat?.name ?? r.catQuery.trim();
+// The categories a row imports with: its chips plus any name still typed
+// in its box — mirroring how the entry form saves.
+function rowCategories(r: ReviewRow, categories: Category[]): CategoryPick[] {
+  return withTypedCategory(r.selectedCats, r.catQuery, categories);
 }
 
 function shortDate(iso: string): string {
@@ -65,11 +73,12 @@ function normalizeForMatch(s: string): string {
 }
 
 // Exact normalised match first, then a word-boundary prefix either way —
-// "asda superstore" matches a stored "asda superstore harrogate".
+// "asda superstore" matches a stored "asda superstore harrogate". The
+// guess is the matched entry's whole category set.
 function guessCategory(
   key: string,
-  byKey: Map<string, Category>
-): Category | null {
+  byKey: Map<string, Category[]>
+): Category[] | null {
   if (!key) return null;
   const exact = byKey.get(key);
   if (exact) return exact;
@@ -117,8 +126,13 @@ export default function ImportView({
     setRows((prev) =>
       prev
         ? prev.map((r) =>
-            r.include && !rowCategoryName(r)
-              ? { ...r, catQuery: cat.name, selectedCat: cat, guessed: false }
+            r.include && rowCategories(r, categories).length === 0
+              ? {
+                  ...r,
+                  catQuery: "",
+                  selectedCats: [{ id: cat.id, name: cat.name }],
+                  guessed: false,
+                }
               : r
           )
         : prev
@@ -167,7 +181,7 @@ export default function ImportView({
       let fingerprints: (string | null)[] = transactions.map(() => null);
       const existing = new Set<string>();
       const nearByKey = new Map<string, string>();
-      const guessByKey = new Map<string, Category>();
+      const guessByKey = new Map<string, Category[]>();
       try {
         const supabase = createClient();
 
@@ -219,16 +233,18 @@ export default function ImportView({
           }
         }
 
-        // Most recent entry per normalised note wins the guess. Fetched in
-        // pages: a plain .limit(2000) is silently capped to 1,000 rows by
-        // PostgREST, halving the history the guesses draw on.
+        // Most recent categorised entry per normalised note wins the guess.
+        // Fetched in pages: a plain .limit(2000) is silently capped to
+        // 1,000 rows by PostgREST, halving the history the guesses draw on.
         const catById = new Map(categories.map((c) => [c.id, c]));
-        const history: { note: string; category_id: string }[] = [];
+        const history: {
+          note: string;
+          entry_categories: { category_id: string }[] | { category_id: string } | null;
+        }[] = [];
         for (let from = 0; from < 2000; from += 1000) {
           const { data, error } = await supabase
             .from("entries")
-            .select("note, category_id")
-            .not("category_id", "is", null)
+            .select("note, entry_categories!inner(category_id)")
             .not("note", "is", null)
             .order("entry_date", { ascending: false })
             .order("created_at", { ascending: false })
@@ -240,8 +256,13 @@ export default function ImportView({
         }
         for (const h of history) {
           const key = normalizeForMatch(h.note);
-          const cat = catById.get(h.category_id);
-          if (key && cat && !guessByKey.has(key)) guessByKey.set(key, cat);
+          const cats = categoryIdsOf(h.entry_categories)
+            .map((id) => catById.get(id))
+            .filter((c): c is Category => c !== undefined)
+            .sort((a, b) => a.name.localeCompare(b.name));
+          if (key && cats.length && !guessByKey.has(key)) {
+            guessByKey.set(key, cats);
+          }
         }
       } catch {
         // Parsed rows are still worth showing without dupes/guesses — but
@@ -282,8 +303,8 @@ export default function ImportView({
                 ? t.amount.toFixed(2)
                 : "",
             direction: t.direction,
-            catQuery: guess?.name ?? "",
-            selectedCat: guess,
+            catQuery: "",
+            selectedCats: guess ?? [],
             fingerprint,
             duplicate,
             nearDuplicate,
@@ -351,49 +372,81 @@ export default function ImportView({
         categories.map((c) => [c.name.toLowerCase(), c.id])
       );
       for (const r of included) {
-        const name = rowCategoryName(r);
-        if (!name || idByName.has(name.toLowerCase())) continue;
+        for (const pick of rowCategories(r, categories)) {
+          const name = pick.name;
+          if (idByName.has(name.toLowerCase())) continue;
 
-        const { data: created, error: createError } = await supabase
-          .from("categories")
-          .insert({ user_id: userId, name })
-          .select("id")
-          .single();
-        if (created) {
-          idByName.set(name.toLowerCase(), created.id);
-          continue;
+          const { data: created, error: createError } = await supabase
+            .from("categories")
+            .insert({ user_id: userId, name })
+            .select("id")
+            .single();
+          if (created) {
+            idByName.set(name.toLowerCase(), created.id);
+            continue;
+          }
+          // The name may already exist (e.g. created in another tab).
+          const { data: existing } = await supabase
+            .from("categories")
+            .select("id")
+            .ilike("name", ilikeLiteral(name))
+            .maybeSingle();
+          if (!existing) throw createError;
+          idByName.set(name.toLowerCase(), existing.id);
         }
-        // The name may already exist (e.g. created in another tab).
-        const { data: existing } = await supabase
-          .from("categories")
-          .select("id")
-          .ilike("name", name.replace(/[\\%_]/g, "\\$&"))
-          .maybeSingle();
-        if (!existing) throw createError;
-        idByName.set(name.toLowerCase(), existing.id);
       }
 
+      // Entry ids are minted here so the category links can be written
+      // without reading the inserted rows back.
       const batchId = crypto.randomUUID();
       const payload = included.map((r) => {
-        const name = rowCategoryName(r);
+        const ids = [
+          ...new Set(
+            rowCategories(r, categories)
+              .map((p) => idByName.get(p.name.toLowerCase()))
+              .filter((id): id is string => id !== undefined)
+          ),
+        ];
         return {
+          id: crypto.randomUUID(),
           user_id: userId,
           amount:
             Math.round(Number(r.amount.trim().replace(",", ".")) * 100) / 100,
           direction: r.direction,
-          category_id: name ? idByName.get(name.toLowerCase()) ?? null : null,
+          // Legacy single-category column: always one of the entry's set.
+          category_id: ids[0] ?? null,
           entry_date: r.date,
           note: r.description.trim() || null,
           is_recurring: false,
           import_batch: batchId,
           fingerprint: r.fingerprint,
+          categoryIds: ids,
         };
       });
 
       const { error: insertError } = await supabase
         .from("entries")
-        .insert(payload);
+        .insert(payload.map(({ categoryIds: _ids, ...row }) => row));
       if (insertError) throw insertError;
+
+      const links = payload.flatMap((row) =>
+        row.categoryIds.map((category_id) => ({
+          entry_id: row.id,
+          category_id,
+          user_id: userId,
+        }))
+      );
+      if (links.length) {
+        const { error: linkError } = await supabase
+          .from("entry_categories")
+          .insert(links);
+        if (linkError) {
+          // Roll the batch back so a failed import never leaves entries
+          // behind stripped of their categories.
+          await supabase.from("entries").delete().eq("import_batch", batchId);
+          throw linkError;
+        }
+      }
 
       setImported({ batchId, count: included.length });
       setRows(null);
@@ -435,11 +488,12 @@ export default function ImportView({
   const isPdf = file?.name.toLowerCase().endsWith(".pdf") ?? false;
   const includedCount = rows?.filter((r) => r.include).length ?? 0;
   const needCategoryCount =
-    rows?.filter((r) => r.include && !rowCategoryName(r)).length ?? 0;
+    rows?.filter((r) => r.include && rowCategories(r, categories).length === 0)
+      .length ?? 0;
   const duplicateCount =
     rows?.filter((r) => r.duplicate || r.nearDuplicate !== null).length ?? 0;
   const categorisedCount =
-    rows?.filter((r) => rowCategoryName(r)).length ?? 0;
+    rows?.filter((r) => rowCategories(r, categories).length > 0).length ?? 0;
   const pageCount = rows ? Math.max(1, Math.ceil(rows.length / PAGE_SIZE)) : 1;
   const safePage = Math.min(page, pageCount - 1);
   const pageRows = rows
@@ -558,7 +612,9 @@ export default function ImportView({
           <ul className={styles.rows}>
             {pageRows.map((r) => {
               const expanded = expandedId === r.id;
-              const catName = rowCategoryName(r);
+              const catName = rowCategories(r, categories)
+                .map((c) => c.name)
+                .join(", ");
               return (
                 <li
                   key={r.id}
@@ -728,20 +784,10 @@ export default function ImportView({
                       <CategoryPicker
                         categories={categories}
                         query={r.catQuery}
-                        selected={r.selectedCat}
-                        onQueryChange={(q) =>
-                          updateRow(r.id, {
-                            catQuery: q,
-                            selectedCat: null,
-                            guessed: false,
-                          })
-                        }
-                        onPick={(c) =>
-                          updateRow(r.id, {
-                            catQuery: c.name,
-                            selectedCat: c,
-                            guessed: false,
-                          })
+                        selected={r.selectedCats}
+                        onQueryChange={(q) => updateRow(r.id, { catQuery: q })}
+                        onSelectedChange={(selectedCats) =>
+                          updateRow(r.id, { selectedCats, guessed: false })
                         }
                       />
                     </div>

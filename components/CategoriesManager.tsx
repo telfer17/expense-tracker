@@ -54,27 +54,20 @@ export default function CategoriesManager({
     router.refresh();
   }
 
+  // One database call does the whole thing atomically: entries that only
+  // had this category move to the target, the tag comes off the rest, and
+  // the category is deleted — or nothing changes.
   async function reassignAndDelete(cat: CategoryRow) {
     if (!target) return;
     setBusy(true);
-    const supabase = createClient();
-
-    const { error: moveError } = await supabase
-      .from("entries")
-      .update({ category_id: target })
-      .eq("category_id", cat.id);
-    if (moveError) {
-      alert("Couldn't move the entries. Nothing was deleted.");
+    const { error } = await createClient().rpc("delete_category_reassigning", {
+      p_category: cat.id,
+      p_target: target,
+    });
+    if (error) {
+      alert("Couldn't delete the category. Nothing was changed.");
       setBusy(false);
       return;
-    }
-
-    const { error: deleteError } = await supabase
-      .from("categories")
-      .delete()
-      .eq("id", cat.id);
-    if (deleteError) {
-      alert("Entries were moved, but the category couldn't be deleted.");
     }
     setBusy(false);
     setReassignFor(null);
@@ -144,8 +137,9 @@ export default function CategoriesManager({
                 ) : (
                   <>
                     <p className={styles.reassignHint}>
-                      Move its {cat.count}{" "}
-                      {cat.count === 1 ? "entry" : "entries"} to:
+                      Remove it from its {cat.count}{" "}
+                      {cat.count === 1 ? "entry" : "entries"}. Any entry left
+                      with no category moves to:
                     </p>
                     <select
                       className={styles.select}

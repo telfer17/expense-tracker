@@ -75,6 +75,8 @@ export default async function CategoryPage({
   const supabase = await createClient();
   // Paged: the default view is all-time, and a big category's totals and
   // groups would otherwise silently truncate at PostgREST's 1,000-row cap.
+  // The inner join on entry_categories keeps every entry carrying this
+  // category, whatever else it's tagged with.
   const entriesPromise = fetchAllRows<{
     id: string;
     note: string | null;
@@ -84,8 +86,8 @@ export default async function CategoryPage({
   }>("entries", (from, to) => {
     let entriesQuery = supabase
       .from("entries")
-      .select("id, note, amount, direction, entry_date")
-      .eq("category_id", id)
+      .select("id, note, amount, direction, entry_date, entry_categories!inner(category_id)")
+      .eq("entry_categories.category_id", id)
       .order("entry_date", { ascending: false })
       .order("id", { ascending: true })
       .range(from, to);

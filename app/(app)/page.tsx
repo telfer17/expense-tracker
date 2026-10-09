@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { ukToday } from "@/lib/month";
 import { fetchAllRows } from "@/lib/paged";
 import { buildPeriods, daysBetween, resolveView, viewHref } from "@/lib/periods";
+import { categoryIdsOf, categoryNames } from "@/lib/types";
 import EntryForm, { type QuickAddItem } from "@/components/EntryForm";
 
 export default async function AddPage() {
@@ -26,7 +27,7 @@ export default async function AddPage() {
       .limit(1),
     supabase
       .from("entries")
-      .select("note, category_id, direction")
+      .select("note, direction, entry_categories(category_id)")
       .order("entry_date", { ascending: false })
       .order("created_at", { ascending: false })
       .limit(50),
@@ -65,23 +66,23 @@ export default async function AddPage() {
     else totals.out += Number(e.amount);
   }
 
-  // The 5 most recent distinct entries (by note + category) as one-tap
-  // prefills. Labelled by note, falling back to the category name.
+  // The 5 most recent distinct entries (by note + category set) as one-tap
+  // prefills. Labelled by note, falling back to the category names.
   const catName = new Map((categories ?? []).map((c) => [c.id, c.name]));
   const seen = new Set<string>();
   const quickAdd: QuickAddItem[] = [];
   for (const r of recentRows ?? []) {
     const note = (r.note ?? "").trim();
-    const label =
-      note || (r.category_id ? catName.get(r.category_id) ?? "" : "");
+    const categoryIds = categoryIdsOf(r.entry_categories).sort();
+    const label = note || categoryNames(categoryIds, catName).join(", ");
     if (!label) continue;
-    const key = `${note.toLowerCase()}|${r.category_id ?? ""}`;
+    const key = `${note.toLowerCase()}|${categoryIds.join(",")}`;
     if (seen.has(key)) continue;
     seen.add(key);
     quickAdd.push({
       label,
       note,
-      categoryId: r.category_id,
+      categoryIds,
       direction: r.direction,
     });
     if (quickAdd.length === 5) break;
