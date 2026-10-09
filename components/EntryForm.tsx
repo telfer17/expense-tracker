@@ -234,21 +234,6 @@ export default function EntryForm({
     return { picks: resolved, createdIds };
   }
 
-  // Attach categories to a saved entry row.
-  function linkCategories(
-    supabase: SupabaseClient,
-    entryId: string,
-    ids: string[]
-  ) {
-    return supabase.from("entry_categories").insert(
-      ids.map((category_id) => ({
-        entry_id: entryId,
-        category_id,
-        user_id: userId,
-      }))
-    );
-  }
-
   async function doSync(entry: PendingEntry): Promise<string> {
     const supabase = createClient();
 
@@ -273,33 +258,29 @@ export default function EntryForm({
         ]);
       }
       updateEntry(entry.tempId, { categories: resolved.picks });
-      const ids = resolved.picks.map((p) => p.id!);
 
-      const { data, error } = await supabase
-        .from("entries")
-        .insert({
-          user_id: userId,
-          amount: entry.amount,
-          direction: entry.direction,
-          // Legacy single-category column, kept until the join-table
-          // backfill is verified: always one of the entry's categories.
-          category_id: ids[0] ?? null,
-          entry_date: entry.entryDate,
-          note: entry.note || null,
-          is_recurring: entry.isRecurring,
-          fingerprint,
-        })
-        .select("id")
-        .single();
-      if (error || !data) return { error };
-
-      const { error: linkError } = await linkCategories(supabase, data.id, ids);
-      if (linkError) {
-        // Never leave a half-saved entry behind; the row offers a retry.
-        await supabase.from("entries").delete().eq("id", data.id);
-        return { error: linkError };
-      }
-      return { id: data.id };
+      // The entry and its category links are written in one transaction
+      // (the function also fills the legacy entries.category_id column), so
+      // a failure leaves nothing behind and the row simply offers a retry.
+      const { data, error } = await supabase.rpc(
+        "insert_entries_with_categories",
+        {
+          p_entries: [
+            {
+              amount: entry.amount,
+              direction: entry.direction,
+              entry_date: entry.entryDate,
+              note: entry.note || null,
+              is_recurring: entry.isRecurring,
+              fingerprint,
+              category_ids: resolved.picks.map((p) => p.id!),
+            },
+          ],
+        }
+      );
+      const id = (data as string[] | null)?.[0];
+      if (error || !id) return { error };
+      return { id };
     };
 
     let result = await attempt(entry.categories);

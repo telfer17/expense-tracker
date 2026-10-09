@@ -367,14 +367,14 @@ export default function ImportView({
     const supabase = createClient();
 
     try {
-      // Resolve category names to ids, creating missing ones once each.
-      const idByName = new Map(
-        categories.map((c) => [c.name.toLowerCase(), c.id])
-      );
+      // Picked chips already carry their id. Only names typed inline (id
+      // null) need creating, once each; names are matched case-sensitively
+      // so distinct categories like "Food" and "food" stay distinct.
+      const createdIdByName = new Map<string, string>();
       for (const r of included) {
         for (const pick of rowCategories(r, categories)) {
+          if (pick.id || createdIdByName.has(pick.name)) continue;
           const name = pick.name;
-          if (idByName.has(name.toLowerCase())) continue;
 
           const { data: created, error: createError } = await supabase
             .from("categories")
@@ -382,7 +382,7 @@ export default function ImportView({
             .select("id")
             .single();
           if (created) {
-            idByName.set(name.toLowerCase(), created.id);
+            createdIdByName.set(name, created.id);
             continue;
           }
           // The name may already exist (e.g. created in another tab).
@@ -392,61 +392,36 @@ export default function ImportView({
             .ilike("name", ilikeLiteral(name))
             .maybeSingle();
           if (!existing) throw createError;
-          idByName.set(name.toLowerCase(), existing.id);
+          createdIdByName.set(name, existing.id);
         }
       }
 
-      // Entry ids are minted here so the category links can be written
-      // without reading the inserted rows back.
+      // Entries and their category links are created in one transaction,
+      // so a failure anywhere creates nothing.
       const batchId = crypto.randomUUID();
-      const payload = included.map((r) => {
-        const ids = [
+      const payload = included.map((r) => ({
+        amount:
+          Math.round(Number(r.amount.trim().replace(",", ".")) * 100) / 100,
+        direction: r.direction,
+        entry_date: r.date,
+        note: r.description.trim() || null,
+        is_recurring: false,
+        import_batch: batchId,
+        fingerprint: r.fingerprint,
+        category_ids: [
           ...new Set(
             rowCategories(r, categories)
-              .map((p) => idByName.get(p.name.toLowerCase()))
+              .map((p) => p.id ?? createdIdByName.get(p.name))
               .filter((id): id is string => id !== undefined)
           ),
-        ];
-        return {
-          id: crypto.randomUUID(),
-          user_id: userId,
-          amount:
-            Math.round(Number(r.amount.trim().replace(",", ".")) * 100) / 100,
-          direction: r.direction,
-          // Legacy single-category column: always one of the entry's set.
-          category_id: ids[0] ?? null,
-          entry_date: r.date,
-          note: r.description.trim() || null,
-          is_recurring: false,
-          import_batch: batchId,
-          fingerprint: r.fingerprint,
-          categoryIds: ids,
-        };
-      });
+        ],
+      }));
 
-      const { error: insertError } = await supabase
-        .from("entries")
-        .insert(payload.map(({ categoryIds: _ids, ...row }) => row));
-      if (insertError) throw insertError;
-
-      const links = payload.flatMap((row) =>
-        row.categoryIds.map((category_id) => ({
-          entry_id: row.id,
-          category_id,
-          user_id: userId,
-        }))
+      const { error: insertError } = await supabase.rpc(
+        "insert_entries_with_categories",
+        { p_entries: payload }
       );
-      if (links.length) {
-        const { error: linkError } = await supabase
-          .from("entry_categories")
-          .insert(links);
-        if (linkError) {
-          // Roll the batch back so a failed import never leaves entries
-          // behind stripped of their categories.
-          await supabase.from("entries").delete().eq("import_batch", batchId);
-          throw linkError;
-        }
-      }
+      if (insertError) throw insertError;
 
       setImported({ batchId, count: included.length });
       setRows(null);

@@ -177,56 +177,30 @@ export default function EntriesView({
     }
 
     // Each copy lands one calendar month after the original, day clamped —
-    // in month mode this is exactly the old prev-month behaviour. Ids are
-    // minted here so the category links can be written without reading
-    // the inserted rows back.
+    // in month mode this is exactly the old prev-month behaviour. Entries
+    // and their category links are created in one transaction, so a
+    // failure creates nothing.
     const rows = recs.map((r) => {
       const targetMonth = addMonths(r.entry_date.slice(0, 7), 1);
       const day = Math.min(
         Number(r.entry_date.slice(8, 10)),
         monthRange(targetMonth).days
       );
-      const categoryIds = categoryIdsOf(r.entry_categories);
       return {
-        id: crypto.randomUUID(),
-        user_id: userId,
         amount: r.amount,
         direction: r.direction,
-        category_id: categoryIds[0] ?? null,
         entry_date: `${targetMonth}-${String(day).padStart(2, "0")}`,
         note: r.note,
         is_recurring: true,
-        categoryIds,
+        category_ids: categoryIdsOf(r.entry_categories),
       };
     });
 
-    const { error: insertError } = await supabase
-      .from("entries")
-      .insert(rows.map(({ categoryIds: _ids, ...row }) => row));
-    if (insertError) {
-      setCopyMsg("Copy failed — nothing was created.");
-      setCopying(false);
-      return;
-    }
-    const links = rows.flatMap((r) =>
-      r.categoryIds.map((category_id) => ({
-        entry_id: r.id,
-        category_id,
-        user_id: userId,
-      }))
+    const { error: insertError } = await supabase.rpc(
+      "insert_entries_with_categories",
+      { p_entries: rows }
     );
-    const { error: linkError } = links.length
-      ? await supabase.from("entry_categories").insert(links)
-      : { error: null };
-    if (linkError) {
-      // Roll the copies back rather than leave them uncategorised.
-      await supabase
-        .from("entries")
-        .delete()
-        .in(
-          "id",
-          rows.map((r) => r.id)
-        );
+    if (insertError) {
       setCopyMsg("Copy failed — nothing was created.");
       setCopying(false);
       return;
