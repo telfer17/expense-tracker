@@ -21,8 +21,19 @@ type ExportRow = {
   amount: number;
   direction: string;
   is_recurring: boolean;
-  categories: { name: string } | { name: string }[] | null;
+  entry_categories: { categories: { name: string } | { name: string }[] | null }[];
 };
+
+// An entry's category names, alphabetical, "; "-joined so the CSV column
+// stays a single plain field however many categories the entry carries.
+function categoryField(links: ExportRow["entry_categories"]): string {
+  return links
+    .map((l) => (Array.isArray(l.categories) ? l.categories[0] : l.categories))
+    .map((c) => c?.name ?? "")
+    .filter(Boolean)
+    .sort((a, b) => a.localeCompare(b))
+    .join("; ");
+}
 
 export async function GET(req: Request) {
   const supabase = await createClient();
@@ -38,7 +49,9 @@ export async function GET(req: Request) {
   for (let from = 0; ; from += PAGE) {
     const { data, error } = await supabase
       .from("entries")
-      .select("entry_date, note, amount, direction, is_recurring, categories(name)")
+      .select(
+        "entry_date, note, amount, direction, is_recurring, entry_categories(categories(name))"
+      )
       .order("entry_date", { ascending: false })
       .order("created_at", { ascending: false })
       .order("id", { ascending: true })
@@ -55,16 +68,13 @@ export async function GET(req: Request) {
 
   const lines = ["date,description,amount,direction,category,recurring"];
   for (const r of rows) {
-    const category = Array.isArray(r.categories)
-      ? r.categories[0]
-      : r.categories;
     lines.push(
       [
         r.entry_date,
         csvField(r.note ?? ""),
         Number(r.amount).toFixed(2),
         r.direction,
-        csvField(category?.name ?? ""),
+        csvField(categoryField(r.entry_categories)),
         r.is_recurring ? "yes" : "no",
       ].join(",")
     );

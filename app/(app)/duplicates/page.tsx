@@ -25,13 +25,15 @@ export default async function DuplicatesPage() {
     entry_date: string;
     note: string | null;
     import_batch: string | null;
-    categories: { name: string } | { name: string }[] | null;
+    entry_categories: {
+      categories: { name: string } | { name: string }[] | null;
+    }[];
   }[] = [];
   for (let from = 0; ; from += PAGE) {
     const { data, error } = await supabase
       .from("entries")
       .select(
-        "id, amount, direction, entry_date, note, import_batch, categories(name)"
+        "id, amount, direction, entry_date, note, import_batch, entry_categories(categories(name))"
       )
       .order("entry_date", { ascending: false })
       .order("created_at", { ascending: false })
@@ -62,13 +64,15 @@ export default async function DuplicatesPage() {
       };
       byKey.set(key, group);
     }
-    const category = Array.isArray(e.categories)
-      ? e.categories[0]
-      : e.categories;
+    const names = e.entry_categories
+      .map((l) => (Array.isArray(l.categories) ? l.categories[0] : l.categories))
+      .map((c) => c?.name ?? "")
+      .filter(Boolean)
+      .sort((a, b) => a.localeCompare(b));
     const entry: DuplicateEntry = {
       id: e.id,
       note: e.note,
-      category: category?.name ?? null,
+      category: names.length ? names.join(", ") : null,
       imported: e.import_batch !== null,
     };
     group.entries.push(entry);

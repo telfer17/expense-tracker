@@ -4,9 +4,16 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
+import { ilikeLiteral, withTypedCategory } from "@/lib/categories";
 import { computeFingerprint } from "@/lib/fingerprint";
 import { addDays, ukToday } from "@/lib/month";
-import type { Category, Direction, Entry } from "@/lib/types";
+import {
+  categoryIdsOf,
+  type Category,
+  type CategoryPick,
+  type Direction,
+  type Entry,
+} from "@/lib/types";
 import CategoryPicker from "./CategoryPicker";
 import styles from "./EntryForm.module.css";
 import overlayStyles from "./EntriesView.module.css";
@@ -15,7 +22,7 @@ import overlayStyles from "./EntriesView.module.css";
 export type QuickAddItem = {
   label: string;
   note: string;
-  categoryId: string | null;
+  categoryIds: string[];
   direction: Direction;
 };
 
@@ -23,8 +30,8 @@ type PendingEntry = {
   tempId: string;
   amount: number;
   direction: Direction;
-  categoryId: string | null;
-  categoryName: string;
+  // Ids fill in as inline-created categories are resolved by the save.
+  categories: CategoryPick[];
   entryDate: string;
   note: string;
   isRecurring: boolean;
@@ -35,6 +42,10 @@ const gbp = new Intl.NumberFormat("en-GB", {
   style: "currency",
   currency: "GBP",
 });
+
+function pickNames(picks: CategoryPick[]): string {
+  return picks.map((p) => p.name).join(", ");
+}
 
 export default function EntryForm({
   userId,
@@ -60,15 +71,17 @@ export default function EntryForm({
   edit?: Entry;
   onClose?: (changed: boolean) => void;
 }) {
-  const editCat = edit
-    ? initialCategories.find((c) => c.id === edit.category_id) ?? null
-    : null;
+  const editCats: CategoryPick[] = edit
+    ? initialCategories
+        .filter((c) => edit.category_ids.includes(c.id))
+        .map((c) => ({ id: c.id, name: c.name }))
+    : [];
 
   const [categories, setCategories] = useState(initialCategories);
   const [amount, setAmount] = useState(edit ? String(edit.amount) : "");
   const [direction, setDirection] = useState<Direction>(edit?.direction ?? "out");
-  const [catQuery, setCatQuery] = useState(editCat?.name ?? "");
-  const [selectedCat, setSelectedCat] = useState<Category | null>(editCat);
+  const [catQuery, setCatQuery] = useState("");
+  const [selectedCats, setSelectedCats] = useState<CategoryPick[]>(editCats);
   const [entryDate, setEntryDate] = useState(edit?.entry_date ?? ukToday);
   const [note, setNote] = useState(edit?.note ?? "");
   const [isRecurring, setIsRecurring] = useState(edit?.is_recurring ?? false);
@@ -88,35 +101,39 @@ export default function EntryForm({
     dbId: string;
   } | null>(null);
   const amountRef = useRef<HTMLInputElement>(null);
-  // Per pending entry: the in-flight save (resolves to the DB id), and the id
-  // of a category the save created inline, so undo can clean it up.
+  // Per pending entry: the in-flight save (resolves to the DB id), and the
+  // ids of categories the save created inline, so undo can clean them up.
   const syncPromises = useRef(new Map<string, Promise<string>>());
-  const createdCategoryIds = useRef(new Map<string, string>());
+  const createdCategoryIds = useRef(new Map<string, string[]>());
 
   const parsedAmount = Number(amount.trim().replace(",", "."));
   const amountValid =
     /^\d+([.,]\d{1,2})?$/.test(amount.trim()) && parsedAmount > 0;
 
-  const trimmedQuery = catQuery.trim();
-  const exactMatch = categories.find(
-    (c) => c.name.toLowerCase() === trimmedQuery.toLowerCase()
-  );
-  const canSave = amountValid && trimmedQuery.length > 0;
+  // What a save would use right now: the chips plus any typed name.
+  const effectiveCats = withTypedCategory(selectedCats, catQuery, categories);
+  const canSave = amountValid && effectiveCats.length > 0;
 
-  // Duplicate warning: same amount + category within the last 7 days,
-  // debounced so it doesn't query on every keystroke. Recurring is out on
-  // both sides — those legitimately repeat. A warning only, never a block.
-  const dupCat = selectedCat ?? exactMatch ?? null;
+  // Duplicate warning: same amount + any shared category within the last
+  // 7 days, debounced so it doesn't query on every keystroke. Recurring is
+  // out on both sides — those legitimately repeat. A warning only, never
+  // a block.
+  const dupCatIds = effectiveCats
+    .map((c) => c.id)
+    .filter((id): id is string => id !== null)
+    .sort();
+  const dupCatKey = dupCatIds.join(",");
   const dupAmount = amountValid ? Math.round(parsedAmount * 100) / 100 : null;
   useEffect(() => {
     setDupWarning(null);
-    if (edit || dupAmount === null || !dupCat || isRecurring) return;
+    if (edit || dupAmount === null || !dupCatKey || isRecurring) return;
+    const ids = dupCatKey.split(",");
     let cancelled = false;
     const timer = setTimeout(async () => {
       const { data } = await createClient()
         .from("entries")
-        .select("entry_date, note")
-        .eq("category_id", dupCat.id)
+        .select("entry_date, note, entry_categories!inner(category_id)")
+        .in("entry_categories.category_id", ids)
         .eq("amount", dupAmount)
         .eq("is_recurring", false)
         .gte("entry_date", addDays(entryDate, -7))
@@ -124,9 +141,13 @@ export default function EntryForm({
         .order("entry_date", { ascending: false })
         .limit(1);
       if (!cancelled && data?.[0]) {
+        const shared = new Set(categoryIdsOf(data[0].entry_categories));
+        const names = categories
+          .filter((c) => shared.has(c.id))
+          .map((c) => c.name);
         setDupWarning({
           amount: dupAmount,
-          category: dupCat.name,
+          category: names.join(", "),
           date: data[0].entry_date,
           note: data[0].note,
         });
@@ -136,7 +157,7 @@ export default function EntryForm({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [edit, dupAmount, dupCat, isRecurring, entryDate]);
+  }, [edit, dupAmount, dupCatKey, isRecurring, entryDate, categories]);
 
   useEffect(() => {
     if (!pendingEdit) return;
@@ -148,30 +169,16 @@ export default function EntryForm({
   }, [pendingEdit]);
 
   function applyQuickAdd(item: QuickAddItem) {
-    const cat = item.categoryId
-      ? categories.find((c) => c.id === item.categoryId) ?? null
-      : null;
-    setSelectedCat(cat);
-    setCatQuery(cat?.name ?? "");
+    setSelectedCats(
+      categories
+        .filter((c) => item.categoryIds.includes(c.id))
+        .map((c) => ({ id: c.id, name: c.name }))
+    );
+    setCatQuery("");
     setNote(item.note);
     setDirection(item.direction);
     // The amount is always typed fresh.
     amountRef.current?.focus();
-  }
-
-  function currentMatch(): Category | null {
-    if (
-      selectedCat &&
-      selectedCat.name.toLowerCase() === trimmedQuery.toLowerCase()
-    ) {
-      return selectedCat;
-    }
-    return exactMatch ?? null;
-  }
-
-  function pickCategory(c: Category) {
-    setSelectedCat(c);
-    setCatQuery(c.name);
   }
 
   function updateEntry(tempId: string, patch: Partial<PendingEntry>) {
@@ -182,11 +189,8 @@ export default function EntryForm({
 
   async function resolveCategory(
     supabase: SupabaseClient,
-    name: string,
-    knownId: string | null
+    name: string
   ): Promise<{ id: string; created: boolean }> {
-    if (knownId) return { id: knownId, created: false };
-
     const { data: created, error } = await supabase
       .from("categories")
       .insert({ user_id: userId, name })
@@ -200,29 +204,38 @@ export default function EntryForm({
       return { id: created.id, created: true };
     }
 
-    // The name may already exist (e.g. created in another tab). Escape the
-    // ilike wildcards so % and _ in a name match literally.
+    // The name may already exist (e.g. created in another tab).
     const { data: existing } = await supabase
       .from("categories")
       .select("id, name")
-      .ilike("name", name.replace(/[\\%_]/g, "\\$&"))
+      .ilike("name", ilikeLiteral(name))
       .maybeSingle();
     if (!existing) throw error;
     return { id: existing.id, created: false };
   }
 
+  // Resolve every pick to an id, creating the inline ones. Returns the
+  // picks with ids filled in (deduplicated) and the ids this call created.
+  async function resolveCategories(
+    supabase: SupabaseClient,
+    picks: CategoryPick[]
+  ): Promise<{ picks: CategoryPick[]; createdIds: string[] }> {
+    const resolved: CategoryPick[] = [];
+    const createdIds: string[] = [];
+    for (const p of picks) {
+      let id = p.id;
+      if (!id) {
+        const r = await resolveCategory(supabase, p.name);
+        id = r.id;
+        if (r.created) createdIds.push(id);
+      }
+      if (!resolved.some((r) => r.id === id)) resolved.push({ id, name: p.name });
+    }
+    return { picks: resolved, createdIds };
+  }
+
   async function doSync(entry: PendingEntry): Promise<string> {
     const supabase = createClient();
-    let categoryId = entry.categoryId;
-
-    if (!categoryId) {
-      const resolved = await resolveCategory(supabase, entry.categoryName, null);
-      categoryId = resolved.id;
-      if (resolved.created) {
-        createdCategoryIds.current.set(entry.tempId, resolved.id);
-      }
-      updateEntry(entry.tempId, { categoryId });
-    }
 
     // Manual entries fingerprint their note (null when it's empty — never
     // matches), so a statement row covering the same transaction can be
@@ -233,39 +246,56 @@ export default function EntryForm({
       entry.note
     );
 
-    const insertEntry = (catId: string) =>
-      supabase
-        .from("entries")
-        .insert({
-          user_id: userId,
-          amount: entry.amount,
-          direction: entry.direction,
-          category_id: catId,
-          entry_date: entry.entryDate,
-          note: entry.note || null,
-          is_recurring: entry.isRecurring,
-          fingerprint,
-        })
-        .select("id")
-        .single();
-
-    let { data, error } = await insertEntry(categoryId);
-
-    // FK violation: the cached category id points at a category that has
-    // since been deleted (e.g. by an undo's cleanup racing this save).
-    // Re-resolve by name — recreating the category if needed — and retry.
-    if (error?.code === "23503") {
-      const resolved = await resolveCategory(supabase, entry.categoryName, null);
-      categoryId = resolved.id;
-      if (resolved.created) {
-        createdCategoryIds.current.set(entry.tempId, resolved.id);
+    const attempt = async (
+      picks: CategoryPick[]
+    ): Promise<{ id: string } | { error: { code?: string } | null }> => {
+      const resolved = await resolveCategories(supabase, picks);
+      if (resolved.createdIds.length) {
+        const prev = createdCategoryIds.current.get(entry.tempId) ?? [];
+        createdCategoryIds.current.set(entry.tempId, [
+          ...prev,
+          ...resolved.createdIds,
+        ]);
       }
-      updateEntry(entry.tempId, { categoryId });
-      ({ data, error } = await insertEntry(categoryId));
+      updateEntry(entry.tempId, { categories: resolved.picks });
+
+      // The entry and its category links are written in one transaction
+      // (the function also fills the legacy entries.category_id column), so
+      // a failure leaves nothing behind and the row simply offers a retry.
+      const { data, error } = await supabase.rpc(
+        "insert_entries_with_categories",
+        {
+          p_entries: [
+            {
+              amount: entry.amount,
+              direction: entry.direction,
+              entry_date: entry.entryDate,
+              note: entry.note || null,
+              is_recurring: entry.isRecurring,
+              fingerprint,
+              category_ids: resolved.picks.map((p) => p.id!),
+            },
+          ],
+        }
+      );
+      const id = (data as string[] | null)?.[0];
+      if (error || !id) return { error };
+      return { id };
+    };
+
+    let result = await attempt(entry.categories);
+
+    // FK violation: a cached category id points at a category that has
+    // since been deleted (e.g. by an undo's cleanup racing this save).
+    // Re-resolve every category by name — recreating as needed — and retry.
+    if ("error" in result && result.error?.code === "23503") {
+      result = await attempt(
+        entry.categories.map((c) => ({ id: null, name: c.name }))
+      );
     }
 
-    if (error || !data) throw error;
-    return data.id;
+    if ("error" in result) throw result.error;
+    return result.id;
   }
 
   function sync(entry: PendingEntry) {
@@ -304,21 +334,24 @@ export default function EntryForm({
       return;
     }
 
-    // If this save created the category and it's now unused, remove it too.
-    // No advisory count — the FK's "on delete restrict" makes the delete
-    // itself the atomic "only if unreferenced" check: it fails if any entry
-    // references the category, including one committing concurrently.
-    const catId = createdCategoryIds.current.get(entry.tempId);
-    if (catId) {
+    // If this save created categories that are now unused, remove them
+    // too. No advisory count — the FKs' "on delete restrict" makes the
+    // delete itself the atomic "only if unreferenced" check: it fails if
+    // any entry references the category, including one committing
+    // concurrently.
+    const catIds = createdCategoryIds.current.get(entry.tempId) ?? [];
+    if (catIds.length) {
       // Let saves already in flight land first, so a category they're about
       // to use is kept rather than deleted out from under them.
       await Promise.allSettled([...syncPromises.current.values()]);
-      const { error: catError } = await supabase
-        .from("categories")
-        .delete()
-        .eq("id", catId);
-      if (!catError) {
-        setCategories((prev) => prev.filter((c) => c.id !== catId));
+      for (const catId of catIds) {
+        const { error: catError } = await supabase
+          .from("categories")
+          .delete()
+          .eq("id", catId);
+        if (!catError) {
+          setCategories((prev) => prev.filter((c) => c.id !== catId));
+        }
       }
     }
 
@@ -346,7 +379,7 @@ export default function EntryForm({
     const { data, error } = await createClient()
       .from("entries")
       .select(
-        "amount, direction, category_id, entry_date, note, is_recurring, categories(name)"
+        "amount, direction, entry_date, note, is_recurring, entry_categories(category_id, categories(name))"
       )
       .eq("id", dbId)
       .maybeSingle();
@@ -360,14 +393,21 @@ export default function EntryForm({
       setPending((prev) => prev.filter((e) => e.tempId !== tempId));
       return;
     }
-    const cat = Array.isArray(data.categories)
-      ? data.categories[0]
-      : data.categories;
+    const links = Array.isArray(data.entry_categories)
+      ? data.entry_categories
+      : data.entry_categories
+        ? [data.entry_categories]
+        : [];
+    const cats: CategoryPick[] = links
+      .map((l) => {
+        const cat = Array.isArray(l.categories) ? l.categories[0] : l.categories;
+        return { id: l.category_id as string, name: cat?.name ?? "" };
+      })
+      .sort((a, b) => a.name.localeCompare(b.name));
     updateEntry(tempId, {
       amount: Number(data.amount),
       direction: data.direction,
-      categoryId: data.category_id,
-      categoryName: cat?.name ?? "",
+      categories: cats,
       entryDate: data.entry_date,
       note: data.note ?? "",
       isRecurring: data.is_recurring,
@@ -380,12 +420,8 @@ export default function EntryForm({
     setEditError(null);
     const supabase = createClient();
     try {
-      const match = currentMatch();
-      const { id: categoryId } = await resolveCategory(
-        supabase,
-        match?.name ?? trimmedQuery,
-        match?.id ?? null
-      );
+      const { picks } = await resolveCategories(supabase, effectiveCats);
+      const ids = picks.map((p) => p.id!);
       // Manual entries keep their fingerprint in step with edits. Imported
       // entries (import_batch set) keep their original untouched — theirs
       // was computed from the raw statement description, which this form
@@ -400,7 +436,7 @@ export default function EntryForm({
         .update({
           amount,
           direction,
-          category_id: categoryId,
+          category_id: ids[0],
           entry_date: entryDate,
           note: note.trim() || null,
           is_recurring: isRecurring,
@@ -408,6 +444,27 @@ export default function EntryForm({
         })
         .eq("id", edit.id);
       if (error) throw error;
+
+      // Add first, then remove, so a failure midway can't leave the entry
+      // with no categories.
+      const { error: addError } = await supabase
+        .from("entry_categories")
+        .upsert(
+          ids.map((category_id) => ({
+            entry_id: edit.id,
+            category_id,
+            user_id: userId,
+          })),
+          { onConflict: "entry_id,category_id", ignoreDuplicates: true }
+        );
+      if (addError) throw addError;
+      const { error: removeError } = await supabase
+        .from("entry_categories")
+        .delete()
+        .eq("entry_id", edit.id)
+        .not("category_id", "in", `(${ids.join(",")})`);
+      if (removeError) throw removeError;
+
       onClose?.(true);
     } catch {
       setEditError("Couldn't save. Try again.");
@@ -440,13 +497,11 @@ export default function EntryForm({
       return;
     }
 
-    const match = currentMatch();
     const entry: PendingEntry = {
       tempId: crypto.randomUUID(),
       amount: Math.round(parsedAmount * 100) / 100,
       direction,
-      categoryId: match?.id ?? null,
-      categoryName: match?.name ?? trimmedQuery,
+      categories: effectiveCats,
       entryDate,
       note: note.trim(),
       isRecurring,
@@ -460,7 +515,7 @@ export default function EntryForm({
     setAmount("");
     setDirection("out");
     setCatQuery("");
-    setSelectedCat(null);
+    setSelectedCats([]);
     setNote("");
     setIsRecurring(false);
     amountRef.current?.focus();
@@ -578,12 +633,9 @@ export default function EntryForm({
         <CategoryPicker
           categories={categories}
           query={catQuery}
-          selected={selectedCat}
-          onQueryChange={(q) => {
-            setCatQuery(q);
-            setSelectedCat(null);
-          }}
-          onPick={pickCategory}
+          selected={selectedCats}
+          onQueryChange={setCatQuery}
+          onSelectedChange={setSelectedCats}
         />
 
         <div className={styles.row}>
@@ -679,7 +731,7 @@ export default function EntryForm({
                   <span className={styles.sign}>
                     {e.direction === "out" ? "−" : "+"}
                   </span>
-                  {gbp.format(e.amount)} · {e.categoryName}
+                  {gbp.format(e.amount)} · {pickNames(e.categories)}
                   {e.note && ` · ${e.note}`}
                 </button>
                 <span className={styles.rowEnd}>
@@ -743,7 +795,9 @@ export default function EntryForm({
                 id: pendingEdit.dbId,
                 amount: editingPending.amount,
                 direction: editingPending.direction,
-                category_id: editingPending.categoryId ?? "",
+                category_ids: editingPending.categories
+                  .map((c) => c.id)
+                  .filter((id): id is string => id !== null),
                 entry_date: editingPending.entryDate,
                 note: editingPending.note || null,
                 is_recurring: editingPending.isRecurring,

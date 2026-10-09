@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { addDays, ukToday } from "@/lib/month";
 import { buildPeriods, daysBetween, formatDate, resolveView } from "@/lib/periods";
 import { resolveRange } from "@/lib/range";
+import { categoryIdsOf, type EntryCategoryRow } from "@/lib/types";
 import RangeFilter from "@/components/RangeFilter";
 import styles from "./insights.module.css";
 
@@ -12,7 +13,18 @@ const gbp = new Intl.NumberFormat("en-GB", {
   currency: "GBP",
 });
 
-type EntryRow = { amount: number; category_id: string | null; note: string | null };
+type EntryRow = {
+  amount: number;
+  note: string | null;
+  entry_categories: EntryCategoryRow[] | EntryCategoryRow | null;
+};
+
+// The keys an entry's amount is counted under: each of its categories in
+// full, or "" (uncategorised) when it has none.
+function catKeys(r: EntryRow): string[] {
+  const ids = categoryIdsOf(r.entry_categories);
+  return ids.length ? ids : [""];
+}
 
 // All entries in one direction in a window, paged past PostgREST's 1,000-row
 // cap so an all-time view aggregates everything rather than a silent first page.
@@ -27,7 +39,7 @@ async function fetchEntries(
   for (let start = 0; ; start += PAGE) {
     let q = supabase
       .from("entries")
-      .select("amount, category_id, note")
+      .select("amount, note, entry_categories(category_id)")
       .eq("direction", direction)
       .order("entry_date", { ascending: false })
       .order("id", { ascending: true })
@@ -124,23 +136,29 @@ export default async function InsightsPage({
     prev ? fetchEntries(supabase, dir, prev.from, prev.to) : Promise.resolve([]),
   ]);
 
-  // 1. Categories ranked by amount.
+  // 1. Categories ranked by amount. An entry with several categories
+  // counts its full amount toward each of them, while `total` counts it
+  // once — so shares can sum past 100%, which the page says when it applies.
   const catNameById = new Map((categories ?? []).map((c) => [c.id, c.name]));
   const byCat = new Map<string, { name: string; total: number; count: number }>();
   let total = 0;
+  let multiTagged = false;
   for (const r of rows) {
-    const key = r.category_id ?? "";
-    let g = byCat.get(key);
-    if (!g) {
-      g = {
-        name: key ? catNameById.get(key) ?? "—" : "Uncategorised",
-        total: 0,
-        count: 0,
-      };
-      byCat.set(key, g);
+    const keys = catKeys(r);
+    if (keys.length > 1) multiTagged = true;
+    for (const key of keys) {
+      let g = byCat.get(key);
+      if (!g) {
+        g = {
+          name: key ? catNameById.get(key) ?? "—" : "Uncategorised",
+          total: 0,
+          count: 0,
+        };
+        byCat.set(key, g);
+      }
+      g.total += Number(r.amount);
+      g.count += 1;
     }
-    g.total += Number(r.amount);
-    g.count += 1;
     total += Number(r.amount);
   }
   const ranked = [...byCat.entries()]
@@ -150,8 +168,9 @@ export default async function InsightsPage({
   // 2. Change vs the previous window, for the top categories.
   const prevByCat = new Map<string, number>();
   for (const r of prevRows) {
-    const key = r.category_id ?? "";
-    prevByCat.set(key, (prevByCat.get(key) ?? 0) + Number(r.amount));
+    for (const key of catKeys(r)) {
+      prevByCat.set(key, (prevByCat.get(key) ?? 0) + Number(r.amount));
+    }
   }
   const changes = ranked.slice(0, 8).map((c) => {
     const prevTotal = prevByCat.get(c.id ?? "") ?? 0;
@@ -281,6 +300,12 @@ export default async function InsightsPage({
             <h2 className={styles.sectionHead}>
               {dir === "in" ? "Where it came from" : "Where it went"}
             </h2>
+            {multiTagged && (
+              <p className={styles.sectionSub}>
+                Entries with several categories count in full toward each, so
+                these shares can add up to more than 100%.
+              </p>
+            )}
             <ul className={styles.list}>
               {ranked.map((c) => {
                 const inner = (

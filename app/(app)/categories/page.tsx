@@ -13,7 +13,7 @@ export default async function CategoriesPage() {
       supabase.auth.getClaims(),
       supabase
         .from("categories")
-        .select("id, name, entries(count)")
+        .select("id, name, entry_categories(count)")
         .order("name"),
       supabase
         .from("user_settings")
@@ -31,7 +31,7 @@ export default async function CategoriesPage() {
   const categories = (data ?? []).map((c) => ({
     id: c.id,
     name: c.name,
-    count: c.entries[0]?.count ?? 0,
+    count: c.entry_categories[0]?.count ?? 0,
   }));
 
   return (

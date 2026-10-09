@@ -7,7 +7,12 @@ import { createClient } from "@/lib/supabase/client";
 import { addMonths, monthRange } from "@/lib/month";
 import { viewHref, type PeriodView } from "@/lib/periods";
 import type { RangeView } from "@/lib/range";
-import type { Category, Entry } from "@/lib/types";
+import {
+  categoryIdsOf,
+  categoryNames,
+  type Category,
+  type Entry,
+} from "@/lib/types";
 import EntryForm from "./EntryForm";
 import RangeFilter from "./RangeFilter";
 import SearchBox from "./SearchBox";
@@ -75,12 +80,13 @@ export default function EntriesView({
   }, [editing]);
 
   // Category and recurring narrow the totals; the direction filter does not —
-  // In/Out/Net always show both sides so they work as navigation.
+  // In/Out/Net always show both sides so they work as navigation. The
+  // category filter matches any entry carrying it, whatever else is tagged.
   const totalsBase = entries.filter((e) => {
-    // "none" = entries with no category (import can leave category_id null).
+    // "none" = entries with no category (import can leave them untagged).
     if (filterCat === "none") {
-      if (e.category_id) return false;
-    } else if (filterCat && e.category_id !== filterCat) return false;
+      if (e.category_ids.length > 0) return false;
+    } else if (filterCat && !e.category_ids.includes(filterCat)) return false;
     if (filterRec === "recurring" && !e.is_recurring) return false;
     if (filterRec === "nonrecurring" && e.is_recurring) return false;
     return true;
@@ -138,7 +144,9 @@ export default function EntriesView({
 
     const { data: recs, error } = await supabase
       .from("entries")
-      .select("amount, direction, category_id, entry_date, note")
+      .select(
+        "amount, direction, entry_date, note, entry_categories(category_id)"
+      )
       .eq("is_recurring", true)
       .gte("entry_date", prev.start)
       .lte("entry_date", prev.end);
@@ -169,7 +177,9 @@ export default function EntriesView({
     }
 
     // Each copy lands one calendar month after the original, day clamped —
-    // in month mode this is exactly the old prev-month behaviour.
+    // in month mode this is exactly the old prev-month behaviour. Entries
+    // and their category links are created in one transaction, so a
+    // failure creates nothing.
     const rows = recs.map((r) => {
       const targetMonth = addMonths(r.entry_date.slice(0, 7), 1);
       const day = Math.min(
@@ -177,21 +187,26 @@ export default function EntriesView({
         monthRange(targetMonth).days
       );
       return {
-        user_id: userId,
         amount: r.amount,
         direction: r.direction,
-        category_id: r.category_id,
         entry_date: `${targetMonth}-${String(day).padStart(2, "0")}`,
         note: r.note,
         is_recurring: true,
+        category_ids: categoryIdsOf(r.entry_categories),
       };
     });
 
-    const { error: insertError } = await supabase.from("entries").insert(rows);
+    const { error: insertError } = await supabase.rpc(
+      "insert_entries_with_categories",
+      { p_entries: rows }
+    );
+    if (insertError) {
+      setCopyMsg("Copy failed — nothing was created.");
+      setCopying(false);
+      return;
+    }
     setCopyMsg(
-      insertError
-        ? "Copy failed — nothing was created."
-        : `Created ${rows.length} ${rows.length === 1 ? "entry" : "entries"}.`
+      `Created ${rows.length} ${rows.length === 1 ? "entry" : "entries"}.`
     );
     setCopying(false);
     router.refresh();
@@ -382,7 +397,7 @@ export default function EntriesView({
               >
                 <span className={styles.entryLeft}>
                   <span className={styles.entryCat}>
-                    {catName.get(e.category_id) ?? "—"}
+                    {categoryNames(e.category_ids, catName).join(", ") || "—"}
                   </span>
                   {e.note && <span className={styles.entryNote}>{e.note}</span>}
                 </span>
