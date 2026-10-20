@@ -4,11 +4,19 @@ Minimalist personal income/outgoings tracker. Next.js (App Router) + Supabase.
 
 ## Setup
 
-### 1. Run the migration
+### 1. Run the migrations
 
-In the Supabase dashboard, open **SQL Editor** and run the contents of
-`supabase/migrations/0001_init.sql` (or use `supabase db push` if you have the
-CLI linked to your project).
+Run **every** file in `supabase/migrations/` in numeric order (`0001_init.sql`,
+then `0002_...`, and so on through the highest number). Later migrations build
+on earlier ones, and the last one grants the app's database roles access to the
+tables and functions, so stopping early leaves the app unable to read anything.
+
+Either paste each file into the Supabase dashboard's **SQL Editor** in order, or
+run `supabase db push` if you have the CLI linked to your project.
+
+When adding a migration that creates a table, view or function, include its
+GRANTs in the same file. See the comment at the top of
+`supabase/migrations/0011_data_api_grants.sql` for the pattern.
 
 ### 2. Create the user
 
